@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+"""Entry point for kura.
+
+Kept deliberately thin: the logic lives in the kura/ package one level up, so
+pytest can import and unit-test it. An extensionless executable cannot be
+imported, which is why nothing but wiring belongs here.
+
+It sits in bin/ rather than beside the package because the command and the
+package want the same name, and one directory cannot hold both.
+
+This is the development entry point. A release is one executable zipapp holding
+the same package, built by build.py, so nothing on an installed machine reads
+this file.
+
+CPython resolves a symlinked script before deriving sys.path[0], so the package
+is normally already reachable when this is run through a symlink on PATH. The
+insert below is what keeps that true when the implicit entry is suppressed, as
+PYTHONSAFEPATH, -P and -I all do.
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from kura.cli import main  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(main())

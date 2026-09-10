@@ -1,0 +1,9 @@
+{
+  "name": "gtm",
+  "description": "Fixture seat plugin gtm.",
+  "version": "0.1.0",
+  "groups": [
+    "observability",
+    "gtm"
+  ]
+}

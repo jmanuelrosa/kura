@@ -1,0 +1,8 @@
+{
+  "name": "product-team",
+  "description": "Fixture plugin product-team.",
+  "version": "0.1.0",
+  "skillDependencies": [
+    "idea-refine"
+  ]
+}

@@ -1,0 +1,156 @@
+{
+  "repos": {
+    "fixture-org/fixture-skills": {
+      "branch": "main",
+      "skills": [
+        {
+          "upstream_path": "skills/brainstorming",
+          "groups": [
+            "research"
+          ],
+          "updated_at": "2026-01-01T00:00:00Z"
+        }
+      ]
+    }
+  },
+  "local_skills": [
+    {
+      "name": "coderabbit",
+      "groups": [
+        "review"
+      ]
+    },
+    {
+      "name": "commit",
+      "groups": [
+        "ai",
+        "git",
+        "global"
+      ]
+    },
+    {
+      "name": "grilling",
+      "groups": [
+        "planning"
+      ],
+      "dependency_only": true
+    },
+    {
+      "name": "grill-me",
+      "groups": [
+        "planning",
+        "global"
+      ],
+      "dependencies": [
+        "grilling"
+      ]
+    },
+    {
+      "name": "grill-with-docs",
+      "groups": [
+        "planning",
+        "global"
+      ],
+      "dependencies": [
+        "grilling"
+      ]
+    },
+    {
+      "name": "planning-and-task-breakdown",
+      "groups": [
+        "planning"
+      ]
+    },
+    {
+      "name": "spec-driven-development",
+      "groups": [
+        "planning"
+      ],
+      "dependencies": [
+        "planning-and-task-breakdown",
+        "incremental-implementation",
+        "test-driven-development",
+        "context-engineering"
+      ]
+    },
+    {
+      "name": "idea-refine",
+      "groups": [
+        "planning",
+        "prompt engineering"
+      ]
+    },
+    {
+      "name": "incremental-implementation",
+      "groups": [
+        "engineering"
+      ]
+    },
+    {
+      "name": "test-driven-development",
+      "groups": [
+        "testing",
+        "frontend"
+      ]
+    },
+    {
+      "name": "context-engineering",
+      "groups": [
+        "ai",
+        "engineering"
+      ]
+    },
+    {
+      "name": "react-best-practices",
+      "groups": [
+        "react",
+        "frontend"
+      ]
+    },
+    {
+      "name": "astro",
+      "groups": [
+        "astro",
+        "engineering",
+        "frontend"
+      ]
+    },
+    {
+      "name": "domain-modeling",
+      "groups": [
+        "engineering"
+      ],
+      "dependencies": [
+        "documentation-and-adrs"
+      ],
+      "dependency_only": true
+    },
+    {
+      "name": "documentation-and-adrs",
+      "groups": [
+        "engineering"
+      ]
+    },
+    {
+      "name": "frontend-design",
+      "groups": [
+        "frontend",
+        "design"
+      ]
+    },
+    {
+      "name": "astro-content",
+      "groups": [
+        "astro",
+        "frontend"
+      ]
+    },
+    {
+      "name": "react-testing",
+      "groups": [
+        "react",
+        "testing"
+      ]
+    }
+  ]
+}

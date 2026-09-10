@@ -1,0 +1,9 @@
+{
+  "name": "qa",
+  "description": "Fixture seat plugin qa.",
+  "version": "0.1.0",
+  "groups": [
+    "observability",
+    "qa"
+  ]
+}

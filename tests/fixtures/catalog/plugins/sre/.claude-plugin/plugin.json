@@ -1,0 +1,9 @@
+{
+  "name": "sre",
+  "description": "Fixture seat plugin sre.",
+  "version": "0.1.0",
+  "groups": [
+    "observability",
+    "sre"
+  ]
+}

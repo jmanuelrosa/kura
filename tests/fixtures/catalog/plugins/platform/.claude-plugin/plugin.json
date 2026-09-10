@@ -1,0 +1,9 @@
+{
+  "name": "platform",
+  "description": "Fixture seat plugin platform.",
+  "version": "0.1.0",
+  "groups": [
+    "observability",
+    "platform"
+  ]
+}

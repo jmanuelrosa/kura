@@ -1,0 +1,9 @@
+{
+  "name": "backend",
+  "description": "Fixture seat plugin backend.",
+  "version": "0.1.0",
+  "groups": [
+    "observability",
+    "backend"
+  ]
+}

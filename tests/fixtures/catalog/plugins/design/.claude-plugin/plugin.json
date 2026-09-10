@@ -1,0 +1,9 @@
+{
+  "name": "design",
+  "description": "Fixture seat plugin design.",
+  "version": "0.1.0",
+  "groups": [
+    "observability",
+    "design"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "local_agents": [
+    {
+      "name": "architect",
+      "groups": [
+        "architecture",
+        "global"
+      ],
+      "dependencies": [
+        "planning-and-task-breakdown",
+        "domain-modeling"
+      ]
+    },
+    {
+      "name": "ux-shaper",
+      "groups": [
+        "architecture",
+        "global"
+      ]
+    },
+    {
+      "name": "code-scout",
+      "groups": [
+        "review"
+      ]
+    }
+  ]
+}
