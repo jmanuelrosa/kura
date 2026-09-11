@@ -714,7 +714,7 @@ trust is Claude Code's business until something kura put there depends on it.
 ### `converge`
 
 ```
-kura converge [--all] [--root PATH] [--dry-run] [--quiet]
+kura converge [--all] [--root PATH] [--dry-run] [--verbose | --quiet]
 ```
 
 | Flag | Meaning |
@@ -722,6 +722,7 @@ kura converge [--all] [--root PATH] [--dry-run] [--quiet]
 | `--all` | Sweep every discovered project instead of only the cwd |
 | `--root PATH` | With `--all`, a tree to search for projects. Repeatable; defaults to `~/Developer` |
 | `--dry-run` | Show what would be linked without touching anything |
+| `--verbose` | With `--all`, show steady-state details for every project |
 | `--quiet` | Print nothing on stdout, for running from a hook. Warnings go to stderr |
 
 Pi reads a project's skills from `.agents/skills` and its plugin agents from `.agents/agents/`,
@@ -730,6 +731,10 @@ link per agent the installed plugins ship. This command is that convergence on i
 nothing else attached. It resolves no dependencies, fetches nothing, records nothing in
 `kura.json`, and installs nothing, which is what makes it safe to run from a hook and on
 every provisioning run.
+
+A single-project run reports the state of both views even when nothing changed, so `0 changes` does not hide what was checked.
+An `--all` sweep stays compact and reports only changes and warnings unless `--verbose` is passed.
+Hooks use `--quiet`, which keeps stdout empty while still sending warnings to stderr.
 
 **It exists because convergence used to happen only as a side effect.** `add`, `remove`, `adopt`,
 `restore` and `scout --add` each call it for the project they were run in, so a project set up
@@ -756,6 +761,14 @@ removed again when a run empties the directory.
 In `$HOME` it reports that there is no project view to converge and exits `0`, following `doctor`
 rather than `add`: the hook fires wherever a session starts, and a refusal painted at every session
 start is noise about nothing.
+
+```
+$ kura converge
+🔗 Converging pi's view of this project
+  ✓ Skills view is current: ~/work/api/.agents/skills points at ~/work/api/.claude/skills.
+  ✓ 16 plugin agent links are current in ~/work/api/.agents/agents.
+✨ 1 project, 0 changes
+```
 
 ```
 $ kura converge --all --dry-run

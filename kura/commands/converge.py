@@ -75,6 +75,27 @@ def blocked(skills, agents):
     return bool(agents.blocked) or agents.blocked_dir
 
 
+def report_steady(skills, agents, project):
+    """Report the halves that were already current in an interactive run."""
+    if skills is None:
+        if pi.wanted(project):
+            link = ui.path(pi.link_path(project))
+            source = ui.path(pi.source_path(project))
+            ui.ok(f"Skills view is current: {link} points at {source}.", indent=2)
+        else:
+            ui.ok("No project skills need a pi view.", indent=2)
+
+    if agents is None:
+        desired, _ = pi.desired_agents(project)
+        total = len(desired)
+        if total:
+            subject = "plugin agent link is" if total == 1 else "plugin agent links are"
+            where = ui.path(pi.agents_path(project))
+            ui.ok(f"{total} {subject} current in {where}.", indent=2)
+        else:
+            ui.ok("No installed plugins provide agents for pi.", indent=2)
+
+
 def summary(total, count, dry_run):
     """The closing line, and the one the `ai` role reads to decide `changed`.
 
@@ -126,10 +147,13 @@ def run(args):
 
     count = 0
     refused = False
+    show_steady = not args.all or args.verbose
     for project in found:
         skills, agents = one(project, dry_run=dry_run)
         pi.report(skills, project, dry_run=dry_run, stream=stream)
         pi.report_agents(agents, project, dry_run=dry_run, stream=stream)
+        if show_steady and not args.quiet:
+            report_steady(skills, agents, project)
         count += changes(skills, agents)
         refused = blocked(skills, agents) or refused
 

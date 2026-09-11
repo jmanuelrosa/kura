@@ -1,0 +1,50 @@
+{
+  "22446eb7f3e35ebd233669311c543de5_0": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "The temporary file inherits the existing Claude config mode or uses 0600 for a new file.",
+    "false_positive": true,
+    "ignored_at": "2026-09-11T12:03:53Z"
+  },
+  "32ca974e60cad4d989d8d65d5ad27e48_0": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "The destination is derived from a selected scope and an artifact in the user-owned catalog.",
+    "false_positive": true,
+    "ignored_at": "2026-09-11T12:03:53Z"
+  },
+  "06dc73e946b9b29a5dc5b75abc979aa7_0": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "The command passes the fixed Pi trust store path derived from HOME.",
+    "false_positive": true,
+    "ignored_at": "2026-09-11T12:03:53Z"
+  },
+  "165d4566b6c7abbfba6aee8458dc2110_0": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "Cleanup is limited to fixed staging and retired sibling names under the selected artifact destination.",
+    "false_positive": true,
+    "ignored_at": "2026-09-11T12:03:53Z"
+  },
+  "165d4566b6c7abbfba6aee8458dc2110_1": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "Final cleanup uses the same fixed staging and retired paths created by this function.",
+    "false_positive": true,
+    "ignored_at": "2026-09-11T12:03:53Z"
+  },
+  "eeedc20a31e0bbfb820b860696796e7a_0": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "The marker is the .git entry directly beneath the selected project directory.",
+    "false_positive": true,
+    "ignored_at": "2026-09-11T12:03:53Z"
+  },
+  "eeedc20a31e0bbfb820b860696796e7a_1": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "The commondir pointer is read to reproduce Git worktree resolution and its shape is validated before use.",
+    "false_positive": true,
+    "ignored_at": "2026-09-11T12:03:53Z"
+  },
+  "eeedc20a31e0bbfb820b860696796e7a_2": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "The command passes the fixed Claude config path derived from HOME.",
+    "false_positive": true,
+    "ignored_at": "2026-09-11T12:03:53Z"
+  }
+}

@@ -182,13 +182,30 @@ def test_a_run_converges_both_views(home, tmp_path, monkeypatch):
     assert pi.is_ours(project)
 
 
-def test_a_second_run_reports_no_changes(home, tmp_path, monkeypatch, capsys):
+def test_a_second_run_reports_both_steady_halves(home, tmp_path, monkeypatch, capsys):
     project = make_project(tmp_path / "repo")
     monkeypatch.chdir(project)
     converge.run(args())
     capsys.readouterr()
     assert converge.run(args()) == errors.OK
-    assert ", 0 changes" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Skills view is current" in out
+    assert "No installed plugins provide agents for pi" in out
+    assert ", 0 changes" in out
+
+
+def test_a_single_project_reports_the_current_plugin_agent_count(
+    home, tmp_path, monkeypatch, capsys
+):
+    project = tmp_path / "repo"
+    leaf = project / ".claude" / "skills"
+    leaf.mkdir(parents=True)
+    (leaf / "backend").symlink_to(CATALOG / "plugins" / "backend")
+    monkeypatch.chdir(project)
+    converge.run(args())
+    capsys.readouterr()
+    assert converge.run(args()) == errors.OK
+    assert "1 plugin agent link is current" in capsys.readouterr().out
 
 
 def test_a_dry_run_reports_the_change_and_writes_nothing(home, tmp_path, monkeypatch, capsys):
@@ -207,6 +224,19 @@ def test_a_sweep_visits_every_discovered_project(home, tmp_path, capsys):
     assert converge.run(args("--all", "--root", str(root))) == errors.OK
     assert pi.is_ours(one) and pi.is_ours(two)
     assert "2 projects" in capsys.readouterr().out
+
+
+def test_a_sweep_only_reports_steady_projects_when_verbose(home, tmp_path, capsys):
+    root = tmp_path / "roots"
+    make_project(root / "one")
+    converge.run(args("--all", "--root", str(root)))
+    capsys.readouterr()
+
+    converge.run(args("--all", "--root", str(root)))
+    assert "Skills view is current" not in capsys.readouterr().out
+
+    converge.run(args("--all", "--root", str(root), "--verbose"))
+    assert "Skills view is current" in capsys.readouterr().out
 
 
 def test_a_foreign_agents_directory_exits_drift(home, tmp_path, monkeypatch, capsys):
