@@ -534,7 +534,14 @@ def build_parser():
         action="store_true",
         help="Show what would be linked without touching anything",
     )
-    converge.add_argument(
+    output = converge.add_mutually_exclusive_group()
+    output.add_argument(
+        "--verbose",
+        dest="verbose",
+        action="store_true",
+        help="With --all, show steady-state details for every project",
+    )
+    output.add_argument(
         "--quiet",
         dest="quiet",
         action="store_true",

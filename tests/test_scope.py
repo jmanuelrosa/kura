@@ -338,6 +338,22 @@ def test_points_into_classifies_a_broken_link_by_its_intended_target(tmp_path):
     assert scope.points_into(link, CATALOG / "plugins") is False
 
 
+def test_catalog_alias_and_target_are_the_same_source(tmp_path):
+    source = tmp_path / "catalog" / "plugins" / "seat"
+    source.mkdir(parents=True)
+    alias = tmp_path / "catalog-alias"
+    alias.symlink_to(source.parent.parent)
+    direct = tmp_path / "direct"
+    direct.symlink_to(source)
+    through_alias = tmp_path / "through-alias"
+    through_alias.symlink_to(alias / "plugins" / "seat")
+
+    assert scope.points_into(direct, alias / "plugins")
+    assert scope.points_into(through_alias, source.parent)
+    assert scope.links_to(direct, alias / "plugins" / "seat")
+    assert scope.links_to(through_alias, source)
+
+
 # --- points_into: our links versus foreign ones ----------------------------------------------------------
 
 

@@ -141,17 +141,24 @@ def link_target(link):
     return Path(os.path.normpath(raw))
 
 
+def _canonical(path):
+    """Resolve existing aliases while keeping a missing final target classifiable."""
+    return Path(os.path.realpath(path))
+
+
 def points_into(link, directory):
     """True if this symlink points somewhere inside `directory`.
 
     How a skill is told apart from a plugin: both install into .claude/skills/, so
     the name alone is ambiguous and only the target says which store it came from.
+    Both sides are canonicalized because the managed catalog path may itself be a
+    symlink, while installed links can carry either its alias or its target spelling.
     """
     target = link_target(link)
     if target is None:
         return False
     try:
-        target.relative_to(Path(os.path.normpath(directory)))
+        _canonical(target).relative_to(_canonical(directory))
     except ValueError:
         return False
     return True
@@ -164,11 +171,12 @@ def links_to(link, source):
     the exact question: a link into skills/ carrying the right name can still point at
     the wrong skill, and only re-pointing it fixes that.
 
-    Both sides go through normpath because one may come from DOTFILES_DIR, which is
-    whatever the caller exported and need not be normalised.
+    Canonicalizing both sides treats a managed catalog symlink and its target as the
+    same source. `realpath` still returns a usable path for a missing final target, so
+    broken links remain classifiable.
     """
     target = link_target(link)
-    return target is not None and target == Path(os.path.normpath(source))
+    return target is not None and _canonical(target) == _canonical(source)
 
 
 def installed_scope(art, home, project, claude=None):
