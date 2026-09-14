@@ -1,44 +1,25 @@
 # The fixture catalog
 
-`catalog/` is a small artifact catalog in the layout `kura.catalog.build_catalog`
-reads: two registries, a `skills/` and `agents/` store, and `plugins/<name>/.claude-plugin/plugin.json`
-manifests. `tests/conftest.py` exports it as `KURA_CATALOG` for every test.
+`catalog/` is a committed test catalog.
+The multi-harness implementation discovers skills from `skills/<name>/SKILL.md` and merges optional `skill-registry.json` metadata.
+`tests/conftest.py` exports it as `KURA_CATALOG` for legacy read-only tests, while multi-harness lifecycle tests create isolated catalogs under `tmp_path`.
 
-The suite used to read the catalog of the dotfiles repository this tool was extracted
-from, which meant a registry edit there could fail the application's tests, and meant
-the tests could not run without that checkout. The artifact **names** are kept from
-that catalog so a case still reads concretely, but the properties those names carry
-are fixed here.
+The retained `agents/`, `plugins/`, and `agent-registry.json` fixtures describe the legacy state that migration preserves without managing.
+They are no longer catalog inputs for the skills-only phase.
 
-## What the cases depend on
-
-Change any of these and something fails, usually in a module's `_fixtures_still_valid`
-guard rather than in the case that cared:
+## Skill cases
 
 | Property | Held by |
 |---|---|
-| A project-scoped skill | `coderabbit` |
-| A skill global by tag | `commit` |
-| A skill global by derivation, untagged | `planning-and-task-breakdown`, `domain-modeling`, `documentation-and-adrs`, `grilling` |
-| A global agent whose dependencies expand two levels | `architect` names `planning-and-task-breakdown` and `domain-modeling`; `domain-modeling` names `documentation-and-adrs` |
+| Project-scoped metadata skill | `coderabbit` |
+| Registry-global skill | `commit` |
+| Recursive global dependency | `grill-me` and `grill-with-docs` require `grilling` |
 | Dependency-only skills | `grilling`, `domain-modeling` |
-| A parent straddling both scopes | `spec-driven-development`: one global dependency, three project ones |
-| A tag straddling both scopes | `planning` |
-| A tag whose whole membership is global | `architecture`, on agents |
-| A tag with a space in it | `prompt engineering`, on `idea-refine` |
-| A project-scoped plugin shipping an agent | `backend` |
-| A plugin declaring a skill through `skillDependencies` | `product-team` names `idea-refine` |
-| Seat boilerplate: a tag most plugins carry, which must earn nothing | `observability` |
-| Tech tags a project can be fingerprinted for | `react`, `astro` |
-| A topic tag with no tech tag beside it | `testing`, on `test-driven-development` |
-| A repo-tracked skill with an upstream | `brainstorming`, under `fixture-org/fixture-skills` |
+| Project dependency closure | `spec-driven-development` |
+| Metadata group with a space | `prompt engineering` on `idea-refine` |
+| Framework groups | `react` and `astro` skills |
+| Upstream-backed skill | `brainstorming` |
 
-`update` and `outdated` never reach the network in the suite: `upstream.fetch` is
-stubbed and the tarballs are built in `tmp_path`, so no fixture here describes an
-upstream payload.
-
-Nothing in here is a real skill. Every `SKILL.md` and agent file carries the minimum
-frontmatter the scanner accepts, which is what the fixture sweep in
-`test_frontmatter.py` guards. The evidence that the scanner does not raise false
-problems is a real catalog's hand-written corpus, and that sweep belongs to whoever
-owns the catalog.
+Every fixture skill carries the minimum valid frontmatter.
+PyYAML remains a test-only oracle for the stdlib frontmatter scanner.
+`update` and `outdated` stub network fetching and construct upstream archives in `tmp_path`.

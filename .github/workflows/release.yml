@@ -52,7 +52,7 @@ jobs:
           cp dist/kura "$smoke_dir/kura"
           env -i PATH=/usr/bin:/bin HOME="$smoke_dir/home" \
             KURA_CATALOG="$GITHUB_WORKSPACE/tests/fixtures/catalog" \
-            "$smoke_dir/kura" list --type plugin > /dev/null
+            "$smoke_dir/kura" list --type skill > /dev/null
           (cd dist && sha256sum --check kura.sha256)
 
       - name: Publish GitHub release

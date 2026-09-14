@@ -26,6 +26,7 @@ from .. import catalog as cat
 from .. import errors, paths, registry, upstream
 from .. import colors, ui
 from ..cli import fail
+from . import common
 
 BEHIND = "behind"
 CURRENT = "current"
@@ -190,6 +191,7 @@ def process_repo(skills, claude, branch, repo, write, fetcher, workspace):
 def run(args, fetcher=None):
     """fetcher is injectable so tests exercise everything but the network."""
     write = args.command == "update"
+    injected_fetcher = fetcher is not None
     fetcher = fetcher or upstream.fetch
 
     if args.type != cat.SKILL:
@@ -199,8 +201,17 @@ def run(args, fetcher=None):
             f"{args.type}s. Agents and plugins are authored in this repo.",
         )
 
-    claude = paths.claude_dir()
-    catalog = cat.build_catalog(claude)
+    if write and not injected_fetcher:
+        try:
+            _, claude = common.machine()
+        except common.Refusal as exc:
+            return fail(exc.code, exc.message)
+    else:
+        claude = paths.claude_dir()
+    try:
+        catalog = common.loaded_catalog(claude)
+    except common.Refusal as exc:
+        return fail(exc.code, exc.message)
     by_repo, local, unknown = targets(catalog, args.names)
 
     for name in unknown:

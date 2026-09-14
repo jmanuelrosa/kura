@@ -4,16 +4,16 @@ Every other command starts from a name you already know. This one starts from th
 directory: it fingerprints the project (fingerprint.py), matches that fingerprint
 against the catalogue's group tags, and prints a shortlist. Answering "what should
 I install here" therefore needs no prior knowledge of what exists, which is the
-gap between `list` — the whole catalogue, alphabetically, telling you nothing
-about relevance — and `add`, which already assumes the answer.
+gap between `list` (the whole catalogue, alphabetically, telling you nothing
+about relevance) and `add`, which already assumes the answer.
 
 Read-only unless `--add`, which installs the strong tier and only the strong tier.
 The weaker tier is a prompt to go and look, not a recommendation to act on, so no
 flag installs it.
 
 `--type` is optional here for the same reason as on `doctor` and `adopt`: a
-project's stack implies artifacts of all three kinds — a React repo wants react
-skills and the frontend seat plugin — and a required `--type` would make a partial
+project's stack implies artifacts of all three kinds: a React repo wants react
+skills and the frontend seat plugin, and a required `--type` would make a partial
 answer the only one available. Given, it narrows the whole report.
 
 Nothing already available here is ever offered, and "available" is wider than
@@ -23,22 +23,22 @@ offering to install what every project already loads.
 """
 
 import json
+import sys
 import textwrap
 from dataclasses import dataclass
-from pathlib import Path
+from types import SimpleNamespace
 
 from .. import catalog as cat
-from .. import errors, fingerprint, frontmatter, paths, scope
+from .. import errors, fingerprint, frontmatter, harnesses, paths, scope, views
 from .. import colors, ui
-from ..cli import fail
-from . import add
+from . import add, common
 
 # How many artifacts a report may name before it stops being a shortlist. Strong
 # matches take from this first; the weaker tier gets whatever is left, so a
 # well-covered project sees no guesses at all.
 SHORTLIST_CAP = 12
 
-# Descriptions are written for a model and run long — several are a paragraph. The
+# Descriptions are written for a model and run long; several are a paragraph. The
 # report wants the gist, not the contract.
 DESCRIPTION_CAP = 220
 WRAP = 100
@@ -49,7 +49,7 @@ ALREADY = "Already in this project"
 
 HEADER = "🔎 Scouting {}"
 
-TYPE_ORDER = (cat.SKILL, cat.AGENT, cat.PLUGIN)
+TYPE_ORDER = (cat.SKILL,)
 
 
 @dataclass(frozen=True)
@@ -90,35 +90,28 @@ def describe(art):
         return ""
 
 
-def available(catalog, effective, kinds, home, project, claude):
-    """(candidates, already) for the selected types. Both name-ordered.
-
-    A candidate is something scout may offer; `already` is what the project has, so
-    the report can say "and you already have these" rather than silently omitting
-    them and looking like it missed something.
-
-    Three exclusions, and each drops the artifact from *both* lists:
-
-      dependency-only  installs with whatever needs it and refuses to be named, so
-                       offering it would be an invitation to a refusal.
-      global           available in every project already, whether by tag or by a
-                       link somebody made in ~/.claude by hand.
-      missing on disk  registered but never downloaded. `update` fetches it; until
-                       then `add` would refuse, so recommending it is a dead end.
-    """
+def available(catalog, effective, configured, machine=None, catalog_root=None, home=None):
+    """Metadata-backed, project-scoped candidates and configured skills."""
     candidates, already = [], []
-    for kind in kinds:
-        for art in cat.visible(catalog, kind):
-            if scope.belongs_global(art, effective):
-                continue
-            where = scope.installed_scope(art, home, project, claude)
-            if where == scope.GLOBAL:
-                continue
-            if where == scope.PROJECT:
-                already.append(art)
-                continue
-            if art.source is None or not art.source.exists():
-                continue
+    roots = views.accepted_skill_roots(catalog_root) if catalog_root is not None else ()
+    for art in cat.visible(catalog, cat.SKILL):
+        if not art.metadata or scope.belongs_global(art, effective):
+            continue
+        if art.name in configured:
+            already.append(art)
+            continue
+        if not art.source.is_dir() or art.catalog_error:
+            continue
+        globally_linked = machine is not None and all(
+            views.classify(
+                harnesses.skill_path(harness_id, art.name, home),
+                art.source,
+                roots,
+            ).state
+            == views.CURRENT
+            for harness_id in machine.global_harnesses
+        )
+        if not globally_linked:
             candidates.append(art)
     return candidates, already
 
@@ -131,7 +124,7 @@ def reason(matched, evidence, focus):
     then alphabetical, so the fallback is at least stable.
 
     Without this the reason is whichever tag happens to sort first, and the `qa`
-    seat — matching a project with no tests on `testing` — justified itself with
+    seat matching a project with no tests on `testing` justified itself with
     `observability` instead.
     """
     if focus and focus in matched:
@@ -149,7 +142,7 @@ def rank(candidates, direct, indirect, focus):
     makes it worth considering. Direct wins outright, so an artifact carrying both
     never lands in the weaker tier.
 
-    `focus` only orders here — it sorts its own matches to the front of whichever
+    `focus` only orders here: it sorts its own matches to the front of whichever
     tier they earned. The promotion happens one level up, in run(), which enters the
     focus tag into `direct` before calling this: asking for a tag is itself the
     evidence for it, so an artifact carrying it is a strong match and `--add` takes
@@ -323,73 +316,54 @@ def render(strong, consider, already, focus, project, emit=print):
     return offered
 
 
-def install(catalog, effective, matches, home, project):
-    """Install the strong tier. Returns the first failure's code, or OK.
-
-    Goes through add.install_one rather than linking directly, so a recommendation
-    accepted here resolves dependencies and records provenance exactly as one typed
-    by hand does. Nothing scout offers is global, so want_global is always False.
-    """
-    first_failure = errors.OK
-    for match in matches:
-        plan_ = add.install_one(catalog, effective, match.kind, match.name, False, home, project)
-        if not plan_.refused:
-            continue
-        fail(plan_.code, plan_.message)
-        if first_failure == errors.OK:
-            first_failure = plan_.code
-    return first_failure
+def install(matches):
+    return add.run(
+        SimpleNamespace(
+            names=[match.name for match in matches],
+            group=None,
+            want_global=False,
+            type=cat.SKILL,
+        )
+    )
 
 
 def run(args):
-    claude = paths.claude_dir()
-    home = paths.home()
-    project = scope.project_root(Path.cwd(), home)
-
-    if project is None:
-        return fail(
-            errors.NO_PROJECT,
-            "scout reads a project to decide what it needs, and $HOME is the one "
-            "directory that cannot be a project: its .claude is ~/.claude, which "
-            "already holds everything tagged global.\n"
-            "  cd into the project you want recommendations for.",
+    def operation():
+        machine, catalog_root = common.machine()
+        project = common.project_root()
+        manifest = common.manifest(project)
+        catalog = common.loaded_catalog(catalog_root)
+        effective = scope.global_set(catalog)
+        configured = set(manifest.skills) | set(cat.resolve(catalog, manifest.skills).names)
+        candidates, already = available(
+            catalog,
+            effective,
+            configured,
+            machine,
+            catalog_root,
+            paths.home(),
         )
 
-    catalog = cat.build_catalog(claude)
-    effective = scope.global_set(catalog)
-    kinds = (args.type,) if args.type else TYPE_ORDER
-    candidates, already = available(catalog, effective, kinds, home, project, claude)
+        direct = fingerprint.read(project)
+        indirect = fingerprint.implied(direct)
+        if not fingerprint.covered(direct):
+            for tag, evidence in fingerprint.fallback(direct).items():
+                indirect.setdefault(tag, evidence)
+        if args.focus:
+            if not cat.in_group(catalog, cat.SKILL, args.focus):
+                ui.warn(
+                    f"nothing in the catalogue carries '{args.focus}', so --focus did nothing",
+                    stream=sys.stderr,
+                )
+                ui.note("`kura list` prints each skill with its tags.", stream=sys.stderr)
+            direct.setdefault(args.focus, f"requested focus '{args.focus}'")
+            indirect.pop(args.focus, None)
 
-    direct = fingerprint.read(project)
-    indirect = fingerprint.implied(direct)
-    if not fingerprint.covered(direct):
-        # The stack is one the catalogue has no artifacts for. These are guesses, so
-        # they join the implied map rather than inflating the strong tier.
-        for tag, evidence in fingerprint.fallback(direct).items():
-            indirect.setdefault(tag, evidence)
-    if args.focus:
-        # A tag is opaque here, so a typo is indistinguishable from a real tag that
-        # simply matched nothing: both print the unfocused report and exit 0. Say so,
-        # rather than letting a misspelt focus look like it worked. Checked against the
-        # whole catalogue, not the candidates, so this means "no such tag" and not
-        # "nothing left to offer under it".
-        if not any(cat.in_group(catalog, kind, args.focus) for kind in TYPE_ORDER):
-            ui.warn(f"nothing in the catalogue carries '{args.focus}', so --focus did nothing")
-            ui.note("`kura list` prints each artifact with its tags.")
+        strong, consider = shortlist(*rank(candidates, direct, indirect, args.focus))
+        render(strong, consider, already, args.focus, project)
+        if not args.add or not strong:
+            return errors.OK
+        ui.blank()
+        return install(strong)
 
-        # Asking for a tag is itself the evidence for it, so the focus enters as
-        # *direct* and its artifacts become strong matches — which `--add` then
-        # takes. That promotion is the point of the flag rather than a side effect:
-        # a focus `--add` ignored would be a filter that filters nothing. It also
-        # outranks an implied hit on the same tag, whose weaker reason would
-        # otherwise be what prints.
-        direct.setdefault(args.focus, f"requested focus '{args.focus}'")
-        indirect.pop(args.focus, None)
-
-    strong, consider = shortlist(*rank(candidates, direct, indirect, args.focus))
-    render(strong, consider, already, args.focus, project)
-
-    if not args.add or not strong:
-        return errors.OK
-    ui.blank()
-    return install(catalog, effective, strong, home, project)
+    return common.run_guarded(operation)

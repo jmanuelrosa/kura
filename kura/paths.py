@@ -19,10 +19,10 @@ no repo to find, so the catalog is named instead.
 import os
 from pathlib import Path
 
-ENV_CATALOG = "KURA_CATALOG"
-# Under $HOME rather than absolute, so a test pointing HOME at tmp_path cannot reach
-# the real catalog by accident.
-DEFAULT_CATALOG = ".local/share/kura/catalog"
+from . import config
+
+ENV_CATALOG = config.ENV_CATALOG
+DEFAULT_CATALOG = str(config.DEFAULT_CATALOG)
 
 
 def catalog_root():
@@ -36,18 +36,11 @@ def catalog_root():
     through the DRIFT guard that exists for a registry which genuinely lost its
     `global` tags. Refusing here keeps that guard a backstop.
     """
-    override = os.environ.get(ENV_CATALOG)
-    if override:
-        root = Path(override)
-        if not root.is_dir():
-            raise SystemExit(f"{ENV_CATALOG} points at {root}, which is not a directory")
-        return root
-    root = home() / DEFAULT_CATALOG
-    if not root.is_dir():
-        raise SystemExit(
-            f"no artifact catalog at {root}. Link one there, or set {ENV_CATALOG}"
-        )
-    return root
+    try:
+        saved = config.read(home())
+        return config.effective_catalog(saved, home())
+    except config.Malformed as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 def claude_dir(root=None):

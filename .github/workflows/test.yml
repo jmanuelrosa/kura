@@ -2,7 +2,7 @@ name: Test
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
 
 permissions:
@@ -42,4 +42,4 @@ jobs:
           cd /tmp/isolated
           env -i PATH=/usr/bin:/bin HOME=/tmp/isolated/home \
             KURA_CATALOG="$GITHUB_WORKSPACE/tests/fixtures/catalog" \
-            ./kura list --type plugin > /dev/null
+            ./kura list --type skill > /dev/null

@@ -10,10 +10,12 @@ that installer lives, which after the extraction is the dotfiles `ai` role rathe
 than this repository.
 """
 
+import ast
 import os
 import re
 import stat
 import subprocess
+import sys
 
 import pytest
 
@@ -85,14 +87,14 @@ def test_the_shim_finds_the_package_with_the_implicit_path_entry_suppressed(tmp_
     env.pop("PYTHONPATH", None)
 
     result = subprocess.run(
-        [str(link), "list", "--type", "plugin"],
+        [str(link), "list", "--type", "skill"],
         cwd=str(home),
         env=env,
         capture_output=True,
         text=True,
     )
     assert result.returncode == 0, result.stderr
-    assert "Available plugins:" in result.stdout
+    assert "Available skills:" in result.stdout
 
 
 def test_the_tests_live_beside_the_package():
@@ -156,17 +158,27 @@ def test_the_runtime_imports_only_the_standard_library():
     tests/ is skipped: it lives inside the package but is never imported at runtime, and
     it imports pytest and PyYAML by design.
     """
-    third_party = {"yaml", "requests", "jinja2", "pytest"}
+    local = {PACKAGE.name}
+    local.update(path.stem for path in PACKAGE.glob("*.py"))
+    local.update(path.name for path in PACKAGE.iterdir() if (path / "__init__.py").is_file())
+    allowed = set(sys.stdlib_module_names) | local
     offenders = []
     for module in sorted(PACKAGE.rglob("*.py")):
         if module.is_relative_to(PACKAGE / "tests"):
             continue
-        for number, line in enumerate(module.read_text().splitlines(), 1):
-            stripped = line.strip()
-            if not stripped.startswith(("import ", "from ")):
+        source = module.read_text()
+        for node in ast.walk(ast.parse(source, filename=str(module))):
+            if isinstance(node, ast.Import):
+                imports = ((alias.name.split(".")[0], node) for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                imports = ((node.module.split(".")[0], node),)
+            else:
                 continue
-            root = stripped.split()[1].split(".")[0]
-            if root not in third_party:
-                continue
-            offenders.append(f"{module.relative_to(PACKAGE)}:{number}: {stripped}")
-    assert offenders == [], "third-party imports at runtime: " + "; ".join(offenders)
+            for root, imported in imports:
+                if root in allowed:
+                    continue
+                statement = ast.get_source_segment(source, imported)
+                offenders.append(
+                    f"{module.relative_to(PACKAGE)}:{imported.lineno}: {statement}"
+                )
+    assert offenders == [], "non-stdlib imports at runtime: " + "; ".join(offenders)
