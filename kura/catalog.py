@@ -6,7 +6,7 @@ build_catalog's reads, so the rules that matter are testable on literal data.
 """
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 SKILL = "skill"
@@ -51,6 +51,8 @@ class Artifact:
     updated_at: str = None
     # Plugins only: keys present in the manifest, so doctor can flag the traps.
     manifest_keys: tuple = field(default=())
+    metadata: bool = False
+    catalog_error: str = None
 
     @property
     def leaf(self):
@@ -67,6 +69,27 @@ class Artifact:
     @property
     def has_upstream(self):
         return self.upstream_repo is not None
+
+
+def _validate_registry_name(name):
+    if (
+        not isinstance(name, str)
+        or not name
+        or name in (".", "..")
+        or "/" in name
+        or "\\" in name
+        or "\0" in name
+    ):
+        raise ValueError(f"registry artifact name {name!r} must be one safe path component")
+    return name
+
+
+def _containment_error(kind, source, root):
+    try:
+        source.resolve().relative_to(root.resolve())
+    except ValueError:
+        return f"{kind} source {source} resolves outside {root}"
+    return None
 
 
 def entry_name(entry, repo_key):
@@ -88,7 +111,10 @@ def entry_name(entry, repo_key):
 
 
 def _read_json(path):
-    return json.loads(path.read_text())
+    data = json.loads(path.read_text())
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} must contain a JSON object")
+    return data
 
 
 def registry_entries(registry, collection):
@@ -97,31 +123,94 @@ def registry_entries(registry, collection):
     repo_key is None for local entries, which is what distinguishes a skill with
     an upstream from one authored here.
     """
-    for repo_key, repo in (registry.get("repos") or {}).items():
+    repos = registry.get("repos") or {}
+    local = registry.get(f"local_{collection}") or []
+    if not isinstance(repos, dict) or not isinstance(local, list):
+        raise ValueError("registry repos must be an object and local entries must be a list")
+    for repo_key, repo in repos.items():
+        if not isinstance(repo, dict) or not isinstance(repo.get(collection) or [], list):
+            raise ValueError(f"registry repo {repo_key!r} has malformed {collection}")
         for entry in repo.get(collection) or []:
-            yield entry_name(entry, repo_key), entry, repo_key
-    for entry in registry.get(f"local_{collection}") or []:
-        yield entry["name"], entry, None
+            if not isinstance(entry, dict):
+                raise ValueError(f"registry repo {repo_key!r} has a non-object entry")
+            name = _validate_registry_name(entry_name(entry, repo_key))
+            yield name, entry, repo_key
+    for entry in local:
+        if not isinstance(entry, dict) or not isinstance(entry.get("name"), str):
+            raise ValueError(f"registry local_{collection} has a malformed entry")
+        name = _validate_registry_name(entry["name"])
+        yield name, entry, None
+
+
+def _frontmatter_name(path):
+    if not path.is_file():
+        return None
+    text = path.read_text()
+    if not text.startswith("---\n"):
+        return None
+    body, marker, _ = text[4:].partition("\n---")
+    if not marker:
+        return None
+    for line in body.splitlines():
+        if line.startswith((" ", "\t")):
+            continue
+        key, separator, value = line.partition(":")
+        if not separator or key.strip() not in ("name", '"name"', "'name'"):
+            continue
+        return value.strip().strip("\"'") or None
+    return None
+
+
+def _metadata_strings(entry, key, artifact_name):
+    value = entry.get(key, [])
+    if value is None:
+        return ()
+    if not isinstance(value, list) or any(
+        not isinstance(item, str) or not item for item in value
+    ):
+        raise ValueError(f"registry skill {artifact_name!r} has malformed {key}")
+    if key == "dependencies":
+        for item in value:
+            _validate_registry_name(item)
+    return tuple(value)
 
 
 def _from_registry(claude, kind):
-    registry = _read_json(claude / REGISTRY_FILE[kind])
+    path = claude / REGISTRY_FILE[kind]
+    if not path.is_file():
+        return {}
+    registry = _read_json(path)
     collection = COLLECTION[kind]
     repos = registry.get("repos") or {}
     out = {}
     for name, entry, repo_key in registry_entries(registry, collection):
+        source_root = claude / collection
+        source = source_root / f"{name}{SUFFIX[kind]}"
+        containment = _containment_error(kind, source, source_root)
+        declared = None
+        if containment is None:
+            declared = _frontmatter_name(source / "SKILL.md") if kind == SKILL else _frontmatter_name(source)
+        mismatch = None
+        if containment is None and source.exists() and declared != name:
+            shown = declared if declared is not None else "missing"
+            mismatch = f"registry name '{name}', source name '{shown}', and directory name '{source.stem}' must agree"
+        dependency_only = entry.get("dependency_only", False)
+        if not isinstance(dependency_only, bool):
+            raise ValueError(f"registry skill {name!r} has malformed dependency_only")
         out[name] = Artifact(
             name=name,
             type=kind,
-            groups=tuple(entry.get("groups") or ()),
-            dependencies=tuple(entry.get("dependencies") or ()),
-            dependency_only=bool(entry.get("dependency_only")),
-            source=claude / collection / f"{name}{SUFFIX[kind]}",
+            groups=_metadata_strings(entry, "groups", name),
+            dependencies=_metadata_strings(entry, "dependencies", name),
+            dependency_only=dependency_only,
+            source=source,
             origin=repo_key or "local",
             upstream_repo=repo_key,
             upstream_path=entry.get("upstream_path") if repo_key else None,
             upstream_branch=(repos.get(repo_key) or {}).get("branch") if repo_key else None,
             updated_at=entry.get("updated_at"),
+            metadata=True,
+            catalog_error=containment or mismatch,
         )
     return out
 
@@ -147,23 +236,48 @@ def _from_plugins(claude):
             source=directory,
             origin="local",
             manifest_keys=tuple(data.keys()),
+            metadata=True,
         )
     return out
 
 
 def build_catalog(claude):
-    """Every artifact, keyed by (type, name).
-
-    Keyed by pair rather than by name alone: because --type is always explicit,
-    the three namespaces are allowed to overlap, and collapsing them would let
-    one type silently shadow another.
-    """
+    """Filesystem skills plus optional metadata, keyed by (type, name)."""
+    claude = Path(claude)
     catalog = {}
-    for kind in (SKILL, AGENT):
-        for name, art in _from_registry(claude, kind).items():
-            catalog[(kind, name)] = art
-    for name, art in _from_plugins(claude).items():
-        catalog[(PLUGIN, name)] = art
+    registered_skills = _from_registry(claude, SKILL)
+    skill_root = claude / STORE[SKILL]
+    if skill_root.is_dir():
+        for directory in sorted(skill_root.iterdir()):
+            skill_file = directory / "SKILL.md"
+            if not directory.is_dir() or not skill_file.is_file():
+                continue
+            declared = _frontmatter_name(skill_file)
+            art = registered_skills.pop(directory.name, None)
+            if art is None and declared in registered_skills:
+                metadata_art = registered_skills.pop(declared)
+                art = replace(
+                    metadata_art,
+                    source=directory,
+                    catalog_error=(
+                        f"registry name '{declared}', source name '{declared}', and "
+                        f"directory name '{directory.name}' must agree"
+                    ),
+                )
+            if art is None:
+                art = Artifact(
+                    name=directory.name,
+                    type=SKILL,
+                    source=directory,
+                    metadata=False,
+                )
+            containment = _containment_error(SKILL, directory, skill_root)
+            if containment:
+                art = replace(art, catalog_error=containment)
+            catalog[(SKILL, art.name)] = art
+    for name, art in registered_skills.items():
+        catalog[(SKILL, name)] = art
+
     return catalog
 
 
@@ -202,12 +316,72 @@ def in_group(catalog, kind, tag):
 
 
 def duplicate_names(catalog):
-    """Names used by more than one type, as {name: [types]}.
-
-    Legal now that --type disambiguates, so doctor reports these as information
-    rather than an error.
-    """
+    """Names used by more than one type, as {name: [types]}."""
     seen = {}
     for (kind, name) in catalog:
         seen.setdefault(name, []).append(kind)
     return {n: sorted(k) for n, k in seen.items() if len(k) > 1}
+
+
+@dataclass(frozen=True)
+class Resolution:
+    names: tuple
+    missing_direct: tuple = ()
+    missing_dependencies: tuple = ()
+    invalid: tuple = ()
+
+    @property
+    def complete(self):
+        return not self.missing_direct and not self.missing_dependencies and not self.invalid
+
+
+def resolve(catalog, direct):
+    """Deterministic recursive skill closure for directly requested names."""
+    skill_map = skills(catalog)
+    visited = set()
+    reached = set()
+    missing_direct = []
+    missing_dependencies = []
+    invalid = []
+
+    def visit(name, parent=None):
+        art = skill_map.get(name)
+        if art is None:
+            if parent is None:
+                missing_direct.append(name)
+            else:
+                missing_dependencies.append((parent, name))
+            return
+        if art.catalog_error:
+            invalid.append((name, art.catalog_error))
+            return
+        if not art.source.is_dir():
+            if parent is None:
+                missing_direct.append(name)
+            else:
+                missing_dependencies.append((parent, name))
+        else:
+            reached.add(name)
+        if name in visited:
+            return
+        visited.add(name)
+        for dependency in sorted(set(art.dependencies)):
+            visit(dependency, name)
+
+    for name in sorted(set(direct)):
+        visit(name)
+    return Resolution(
+        tuple(sorted(reached)),
+        tuple(sorted(set(missing_direct))),
+        tuple(sorted(set(missing_dependencies))),
+        tuple(sorted(set(invalid))),
+    )
+
+
+def global_resolution(catalog):
+    roots = [
+        art.name
+        for art in of_type(catalog, SKILL)
+        if art.metadata and art.tagged_global
+    ]
+    return resolve(catalog, roots)

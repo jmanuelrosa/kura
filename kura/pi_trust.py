@@ -5,7 +5,7 @@ pi keeps its own store and derives its key differently, so the same project has 
 answers and neither tool can speak for the other. Separate module for that reason: the
 derivations in `workspace.py` are Claude Code's and are documented as not ours to
 choose, and these are pi's on exactly the same terms. Both were read out of the
-installed 0.84.x `dist/core/trust-manager.js`.
+installed 0.85.1 `dist/core/trust-manager.js`.
 
 Three differences, and every one of them changes the answer:
 
@@ -27,19 +27,23 @@ trusting the project. So the tool's own work is what causes the prompt, which ma
 "will pi ask me here, and what does its store already say" a question this tool owes an
 answer to.
 
-Nothing here writes. pi guards the file with `proper-lockfile` and it is pi's to own;
-accepting pi's prompt once is a safe, one-time act that records the same decision, and
-`locked` exists only so a reader is told when the file is being written underneath them.
+Writes use the lock path and retry behavior from pi's `proper-lockfile` adapter.
 """
 
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
+import stat
+import time
 
 from kura import paths
 
 FILENAME = "trust.json"
 LOCK_SUFFIX = ".lock"
+LOCK_ATTEMPTS = 10
+LOCK_WAIT_SECONDS = 0.02
+LOCK_STALE_SECONDS = 10
 CONFIG_DIR = ".pi"
 SKILLS_DIR = Path(".agents") / "skills"
 
@@ -82,21 +86,106 @@ def key_for(path):
     return normalise(path)
 
 
-def read(path):
-    """The store as a flat {path: bool} mapping, or {} when there is nothing to read.
-
-    A missing file is the normal state of a machine where pi has not asked yet, and an
-    unparseable one is pi's to complain about, so both read as "nothing recorded". This
-    is a report, and refusing to print one because a file is malformed would be the
-    least useful moment to stop.
-    """
+def loads_strict(raw, path):
     try:
-        data = json.loads(Path(path).read_text())
+        text = raw.decode("utf-8-sig") if isinstance(raw, bytes) else raw
+        data = json.loads(text)
+    except (UnicodeError, ValueError) as exc:
+        raise ValueError(f"failed to read trust store {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"invalid trust store {path}: expected an object")
+    for key, value in data.items():
+        if value is not True and value is not False and value is not None:
+            raise ValueError(f"invalid trust store {path}: {key!r} must be true, false, or null")
+    return data
+
+
+def read_strict(path):
+    path = Path(path)
+    try:
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        return {}
+    except OSError as exc:
+        raise ValueError(f"failed to read trust store {path}: {exc}") from exc
+    return loads_strict(raw, path)
+
+
+def read(path):
+    """The boolean trust entries, filtering values Pi would not treat as decisions."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
         return {}
     if not isinstance(data, dict):
         return {}
-    return {key: value for key, value in data.items() if isinstance(value, bool)}
+    return {
+        key: value
+        for key, value in data.items()
+        if value is True or value is False
+    }
+
+
+def dump(data):
+    selected = {
+        key: data[key]
+        for key in sorted(data)
+        if data[key] is True or data[key] is False or data[key] is None
+    }
+    return json.dumps(selected, indent=2) + "\n"
+
+
+def _reclaim_stale(lock_path):
+    try:
+        found = lock_path.lstat()
+    except FileNotFoundError:
+        return True
+    if not stat.S_ISDIR(found.st_mode):
+        return False
+    if time.time() - found.st_mtime < LOCK_STALE_SECONDS:
+        return False
+    try:
+        lock_path.rmdir()
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+@contextmanager
+def lock(path):
+    """Acquire Pi's proper-lockfile-compatible directory lock."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = Path(str(path) + LOCK_SUFFIX)
+    owned = None
+    for attempt in range(LOCK_ATTEMPTS):
+        while True:
+            try:
+                lock_path.mkdir()
+            except FileExistsError:
+                if _reclaim_stale(lock_path):
+                    continue
+                break
+            owned = lock_path.lstat()
+            break
+        if owned is not None:
+            break
+        if attempt + 1 < LOCK_ATTEMPTS:
+            time.sleep(LOCK_WAIT_SECONDS)
+    if owned is None:
+        raise OSError(f"Pi trust store is locked at {lock_path}")
+    try:
+        yield
+    finally:
+        try:
+            current = lock_path.lstat()
+        except FileNotFoundError:
+            raise OSError(f"Pi trust lock disappeared before cleanup at {lock_path}") from None
+        if (current.st_dev, current.st_ino) != (owned.st_dev, owned.st_ino):
+            raise OSError(f"Pi trust lock changed before cleanup at {lock_path}")
+        lock_path.rmdir()
 
 
 def ancestors(path):
@@ -120,18 +209,14 @@ def decided_by(store, cwd):
     and never asked.
     """
     for candidate in ancestors(cwd):
-        if candidate in store:
-            return candidate, store[candidate]
+        value = store.get(candidate)
+        if value is True or value is False:
+            return candidate, value
     return None, None
 
 
 def locked(path):
-    """True while pi holds its lock on the store.
-
-    `proper-lockfile` takes `<file>.lock` beside the file, so its presence means a pi
-    process is writing. Only worth reporting: nothing here writes, so this cannot
-    change what the caller may do, only what they are told.
-    """
+    """True while the proper-lockfile path is present beside the store."""
     return Path(str(path) + LOCK_SUFFIX).exists()
 
 

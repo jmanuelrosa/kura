@@ -30,21 +30,23 @@ NO_ARGPARSE_COLOR = (
     {"color": False} if "color" in argparse.ArgumentParser.__init__.__code__.co_varnames else {}
 )
 
-TYPES = ("skill", "agent", "plugin")
+TYPES = ("skill",)
 
 COMMANDS = {
-    "list": "Show artifacts and where they are installed",
-    "scout": "Recommend artifacts for the current project, matched to its stack",
-    "add": "Install a skill, agent or plugin",
-    "remove": "Uninstall a skill, agent or plugin",
-    "sync": "Converge ~/.claude on the artifacts tagged global",
+    "init": "Initialize this exact directory for selected harnesses",
+    "config": "Show or change machine configuration",
+    "list": "Show skills and their native harness views",
+    "scout": "Recommend metadata-backed skills for the current project",
+    "add": "Add direct project intent or temporary global skill links",
+    "remove": "Remove direct project intent or temporary global skill links",
+    "sync": "Converge registry-global skills across enabled harnesses",
     "update": "Fetch skills from their upstream repos",
     "outdated": "Report which skills are behind upstream",
-    "doctor": "Report drift between registries and disk",
-    "adopt": "Rebuild kura.json from what is installed",
-    "restore": "Install what kura.json records",
-    "trust": "Show or change whether this workspace is trusted",
-    "converge": "Relink pi's view of a project's skills and plugin agents",
+    "doctor": "Report configuration and native-view drift",
+    "adopt": "Adopt catalog-backed native links as direct intent",
+    "restore": "Recreate missing links without deleting anything",
+    "trust": "Show or change selected harness trust",
+    "converge": "Reconcile selected native skill views",
 }
 
 # Which module runs each command. `update` and `outdated` share one: they are the same
@@ -55,6 +57,8 @@ COMMANDS = {
 # collided with the module that had the name first: commands/pull.py serves `update` and
 # `outdated`, and fetching from upstream is a different act from converging ~/.claude.
 MODULE = {
+    "init": "init",
+    "config": "config",
     "list": "listing",
     "scout": "scout",
     "add": "add",
@@ -85,19 +89,23 @@ MODULE = {
 # would suggest a project run that does not exist.
 FAMILIES = (
     (
-        "Scope-chosen (a project's .claude/, or ~/.claude with --global)",
+        "Scope-chosen (project intent, or temporary global views with --global)",
         ("add", "remove"),
     ),
     (
-        "Scope-fixed (the cwd decides; there is nothing to pick, so no --global)",
+        "Setup and machine configuration (--global does not apply)",
+        ("init", "config"),
+    ),
+    (
+        "Project and catalog operations (--global does not apply)",
         ("list", "scout", "doctor", "adopt", "restore"),
     ),
     (
-        "Global (~/.claude only; the scope is implied, so --global does not apply)",
+        "Global native views (--global does not apply)",
         ("sync",),
     ),
     (
-        "Registry-wide (this repo's sources against upstream; --global does not apply)",
+        "Registry-backed upstream sources (--global does not apply)",
         ("update", "outdated"),
     ),
     # A fifth family rather than a sixth scope-fixed command, because the other four
@@ -107,7 +115,7 @@ FAMILIES = (
     # artifact commands, where a reader looking for why a plugin does not load has no
     # reason to look.
     (
-        "Workspace trust (~/.claude.json, keyed on the repo root; --global does not apply)",
+        "Harness trust for the current project (--global does not apply)",
         ("trust",),
     ),
     # A sixth family for one command, because none of the five titles is true about it.
@@ -116,34 +124,32 @@ FAMILIES = (
     # pi loads none of their skills has no reason to look. It is also the one project
     # command that can act on every project at once, which no scope-fixed title can claim.
     (
-        "Pi's view (a project's .agents/, or every project with --all; --global does not apply)",
+        "Project native-view convergence (--global does not apply)",
         ("converge",),
     ),
 )
 
 SCOPE = {
+    "init": (
+        "Uses cwd as the exact project, creates root kura.json, and projects skills into each selected harness."
+    ),
+    "config": (
+        "Reads or changes the XDG machine configuration and converges global native views."
+    ),
     "list": (
-        "Reads ~/.claude and the current project together, and never writes, so there "
-        "is no scope to pick and no --global here."
+        "Reads the catalog, global native views, and root kura.json in cwd when present."
     ),
     "scout": (
-        "Reads <cwd> to decide what to recommend, and skips anything already "
-        "available to it from either scope. Writes only with --add, and only into "
-        "<cwd>/.claude: nothing it offers belongs in ~/.claude, so --global has "
-        "nothing to say here."
+        "Requires root kura.json in cwd and recommends only metadata-backed project skills."
     ),
     "add": (
-        "Installs into <cwd>/.claude, or into ~/.claude with --global, which is "
-        "required for any artifact that belongs there."
+        "Changes direct intent in root kura.json, or temporary global views with --global."
     ),
     "remove": (
-        "Acts on <cwd>/.claude, or on ~/.claude with --global. A removal never "
-        "leaves the scope it starts in."
+        "Changes direct intent in root kura.json, or temporary global views with --global."
     ),
     "sync": (
-        "Acts on ~/.claude alone, whatever the cwd: it links every artifact tagged "
-        "global and unlinks the ones no longer tagged, so the directory is owned by "
-        "the registries rather than by whoever ran a command there last."
+        "Converges registry-global skills across every globally enabled harness."
     ),
     "update": (
         "Acts on this repo's skill sources against upstream. Tied to neither a "
@@ -154,28 +160,19 @@ SCOPE = {
         "project nor ~/.claude, and covers skills only."
     ),
     "doctor": (
-        "Reports on ~/.claude and the current project together, and never writes, so "
-        "there is no scope to pick and no --global here."
+        "Inspects machine, catalog, project, native-view, instruction, executable, and trust state."
     ),
     "adopt": (
-        "Project scope only: the manifest it writes is <cwd>/.claude/kura.json, "
-        "so --global has nothing to say here."
+        "Requires root kura.json and adopts agreeing catalog-backed selected harness views."
     ),
     "restore": (
-        "Project scope only, and the mirror of adopt: it reads "
-        "<cwd>/.claude/kura.json and links what that file records, so nothing "
-        "reaches ~/.claude and --global has nothing to say here."
+        "Requires root kura.json and recreates missing selected harness links without deleting."
     ),
     "converge": (
-        "Acts on <cwd>/.agents, the two links pi reads a project's skills and plugin "
-        "agents from, or on every discovered project with --all. It installs nothing "
-        "and records nothing, so there is no scope to pick and no --global here."
+        "Reconciles the cwd project, or recursively scans cwd or explicit roots with --all."
     ),
     "trust": (
-        "Acts on ~/.claude.json, under the key Claude Code derives from <cwd>: the git "
-        "repo root, and for a linked worktree the main checkout. It reads and writes one "
-        "field of one key and no artifact of any type, so neither --type nor --global "
-        "applies here."
+        "Uses root kura.json in cwd and reads or changes each selected available harness store."
     ),
 }
 
@@ -303,9 +300,8 @@ def _add_type(parser, required=True):
         dest="type",
         choices=TYPES,
         required=required,
-        metavar="{" + ",".join(TYPES) + "}",
-        help="which kind of artifact to act on"
-        + ("" if required else " (default: all three)"),
+        metavar="skill",
+        help="artifact type (skills are the only managed type in this phase)",
     )
 
 
@@ -377,7 +373,7 @@ def _command(sub, name):
 def build_parser():
     parser = Parser(
         prog="kura",
-        description="Manage coding-agent artifacts for Claude Code and Pi from one catalog.",
+        description="Manage one declared skill set across Claude Code and Pi native views.",
         epilog=_epilog(),
         # Raw only here, to hold the epilog's columns. Subparsers get Help instead, so
         # their descriptions keep wrapping to the terminal.
@@ -393,6 +389,54 @@ def build_parser():
     # So parse_args can hand an extras refusal to the subcommand whose flags it is
     # actually about. Only the root gets one; a subparser keeps the empty class default.
     parser.subcommands = sub.choices
+
+    init = _command(sub, "init")
+    init.add_argument(
+        "--harness",
+        dest="harnesses",
+        action="append",
+        default=[],
+        choices=("claude", "pi"),
+        help="select a project harness (repeatable)",
+    )
+    init.add_argument(
+        "--catalog",
+        metavar="PATH",
+        help="saved absolute catalog path for first machine setup",
+    )
+    init.add_argument(
+        "--global-harness",
+        dest="global_harnesses",
+        action="append",
+        default=[],
+        choices=("claude", "pi"),
+        help="enable a global harness during first machine setup (repeatable)",
+    )
+    init.add_argument("--yes", action="store_true", help="apply the complete safe plan")
+    init.add_argument("--dry-run", action="store_true", help="show the plan without writing")
+    init.add_argument("--verbose", action="store_true", help="show every conversion and native link")
+
+    config_command = _command(sub, "config")
+    config_command.add_argument("--catalog", metavar="PATH", help="replace the saved catalog path")
+    config_command.add_argument(
+        "--harness",
+        dest="harnesses",
+        action="append",
+        default=None,
+        choices=("claude", "pi"),
+        help="replace global harnesses with this repeatable selection",
+    )
+    config_command.add_argument(
+        "--root",
+        dest="roots",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="scan an initialized-project tree during a catalog move (repeatable)",
+    )
+    config_command.add_argument("--yes", action="store_true", help="apply the complete safe plan")
+    config_command.add_argument("--dry-run", action="store_true", help="show the plan without writing")
+    config_command.add_argument("--verbose", action="store_true", help="show every native link decision")
 
     listing = _command(sub, "list")
     _add_type(listing)
@@ -424,7 +468,7 @@ def build_parser():
     scout.add_argument(
         "--focus",
         metavar="TAG",
-        help="Sort artifacts carrying this group tag to the front (e.g. testing)",
+        help="Promote this metadata group to a strong match (e.g. testing)",
     )
     scout.add_argument(
         "--add",
@@ -443,7 +487,7 @@ def build_parser():
         "--global",
         dest="want_global",
         action="store_true",
-        help="Install into ~/.claude. Required for any global artifact.",
+        help="Create temporary links in every globally enabled harness",
     )
     _add_group(add, "Install")
 
@@ -454,13 +498,13 @@ def build_parser():
         "--global",
         dest="want_global",
         action="store_true",
-        help="Act on ~/.claude rather than the project",
+        help="Remove temporary links from every globally enabled harness",
     )
     remove.add_argument(
         "--no-cascade",
         dest="no_cascade",
         action="store_true",
-        help="Remove only what is named, leaving its dependencies in place",
+        help="Deprecated compatibility flag; dependencies are derived from kura.json",
     )
     _add_group(remove, "Act on")
 
@@ -513,6 +557,7 @@ def build_parser():
     # by what is on disk, and a --type could only ever converge half of a view whose
     # whole purpose is to mirror the other directory exactly.
     converge = _command(sub, "converge")
+    _add_type(converge, required=False)
     converge.add_argument(
         "--all",
         dest="all",
@@ -525,8 +570,7 @@ def build_parser():
         action="append",
         default=[],
         metavar="PATH",
-        help="With --all, a tree to search for projects (repeatable; default: ~/Developer). "
-        "Claude Code's own project registry is swept either way.",
+        help="With --all, a tree to scan recursively (repeatable; default: cwd)",
     )
     converge.add_argument(
         "--dry-run",
@@ -551,14 +595,6 @@ def build_parser():
     # No _add_type: this is the one command that acts on a directory rather than on an
     # artifact, so there is no kind to narrow and run() reads no args.type.
     trust = _command(sub, "trust")
-    trust.add_argument(
-        "path",
-        nargs="?",
-        default=None,
-        metavar="PATH",
-        help="Which directory to report on or change (default: the cwd). Its repo root "
-        "is what gets used, so an ancestor named in a warning can be passed straight back.",
-    )
     # Mutually exclusive rather than one --trust=BOOL: the two are opposite intentions
     # and argparse can refuse both at once only when they are separate flags.
     switch = trust.add_mutually_exclusive_group()
@@ -566,13 +602,19 @@ def build_parser():
         "--on",
         dest="turn_on",
         action="store_true",
-        help="Trust this workspace, so its project-scope plugins load",
+        help="Trust this project in every selected available harness",
     )
     switch.add_argument(
         "--off",
         dest="turn_off",
         action="store_true",
-        help="Clear this workspace's own trust flag",
+        help="Record a native refusal for this project",
+    )
+    trust.add_argument(
+        "--dry-run",
+        dest="dry_run",
+        action="store_true",
+        help="Show trust targets without changing either harness store",
     )
 
     return parser
