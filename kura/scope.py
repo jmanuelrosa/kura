@@ -19,36 +19,35 @@ PROJECT = "project"
 
 
 def _derive_global(catalog):
-    """(effective global skill names, {name: parents}) in one walk.
-
-    The two answers come from the same edges, so deriving them separately is how they
-    drift: a skill could be counted global by one and attributed by neither. `parents`
-    covers only the skills that are global *because* something global names them, which
-    is why a tagged skill reached as a dependency is added to the set without gaining a
-    parent. Its tag already says why it is there.
-    """
-    skills = cat.skills(catalog)
-    effective = {art.name for art in catalog.values() if art.tagged_global and art.type == cat.SKILL}
+    """The recursive registry-global closure and its root attribution."""
+    skill_map = cat.skills(catalog)
+    roots = sorted(
+        art.name
+        for art in skill_map.values()
+        if art.metadata and art.tagged_global
+    )
+    effective = set()
     parents = {}
 
-    def reach(name, parent):
+    def visit(name, root):
+        art = skill_map.get(name)
+        if art is None:
+            return
+        first = name not in effective
         effective.add(name)
-        if not skills[name].tagged_global:
-            parents.setdefault(name, set()).add(parent)
+        if name != root and not art.tagged_global:
+            parents.setdefault(name, set()).add(root)
+        if first:
+            for dependency in art.dependencies:
+                visit(dependency, root)
+        else:
+            for dependency in art.dependencies:
+                dep = skill_map.get(dependency)
+                if dep is not None and not dep.tagged_global:
+                    parents.setdefault(dependency, set()).add(root)
 
-    for art in catalog.values():
-        if not art.tagged_global:
-            continue
-        for dep in art.dependencies:
-            if dep not in skills:
-                continue
-            reach(dep, art.name)
-            if art.type == cat.AGENT:
-                # Attributed to the agent rather than to `dep`: the agent is the thing
-                # the user installed, so it is the answer to "why is this in ~/.claude".
-                for indirect in skills[dep].dependencies:
-                    if indirect in skills:
-                        reach(indirect, art.name)
+    for root in roots:
+        visit(root, root)
     return effective, {name: tuple(sorted(who)) for name, who in parents.items()}
 
 

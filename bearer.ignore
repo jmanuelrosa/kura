@@ -5,12 +5,6 @@
     "false_positive": true,
     "ignored_at": "2026-09-11T12:03:53Z"
   },
-  "32ca974e60cad4d989d8d65d5ad27e48_0": {
-    "author": "Jose Manuel Rosa Moncayo",
-    "comment": "The destination is derived from a selected scope and an artifact in the user-owned catalog.",
-    "false_positive": true,
-    "ignored_at": "2026-09-11T12:03:53Z"
-  },
   "06dc73e946b9b29a5dc5b75abc979aa7_0": {
     "author": "Jose Manuel Rosa Moncayo",
     "comment": "The command passes the fixed Pi trust store path derived from HOME.",
@@ -46,5 +40,95 @@
     "comment": "The command passes the fixed Claude config path derived from HOME.",
     "false_positive": true,
     "ignored_at": "2026-09-11T12:03:53Z"
+  },
+  "437b72de127a562d05b72657795daa99_0": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "The machine configuration temporary file uses 0600 for new files or preserves the existing user-owned file mode.",
+    "false_positive": true,
+    "ignored_at": "2026-09-14T15:35:50Z"
+  },
+  "e315af44cd7a8470e15b7bbbe25cdef1_0": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "The project manifest temporary file uses 0644 for new version-controlled state or preserves its existing mode.",
+    "false_positive": true,
+    "ignored_at": "2026-09-14T15:35:50Z"
+  },
+  "7d6c40a7c36e88764a69734448a38be6_0": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "Transaction writes use the fixed action mode or preserve the snapshotted mode of an existing user-owned file.",
+    "false_positive": true,
+    "ignored_at": "2026-09-14T15:35:50Z"
+  },
+  "711475736fd6b2bef8a942e4d0cace69_0": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "Project skill roots combine the selected project with fixed path components from a validated built-in harness profile.",
+    "false_positive": true,
+    "ignored_at": "2026-09-14T15:35:50Z"
+  },
+  "711475736fd6b2bef8a942e4d0cace69_1": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "Global skill roots combine HOME with fixed path components from a validated built-in harness profile.",
+    "false_positive": true,
+    "ignored_at": "2026-09-14T15:35:50Z"
+  },
+  "06dc73e946b9b29a5dc5b75abc979aa7_1": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "The read path is the fixed Pi trust store path derived from HOME.",
+    "false_positive": true,
+    "ignored_at": "2026-09-14T15:35:50Z"
+  },
+  "06dc73e946b9b29a5dc5b75abc979aa7_2": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "The created parent is the fixed Pi agent directory beneath HOME.",
+    "false_positive": true,
+    "ignored_at": "2026-09-14T15:35:50Z"
+  },
+  "06dc73e946b9b29a5dc5b75abc979aa7_3": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "The lock directory is the fixed suffix beside the Pi trust store path.",
+    "false_positive": true,
+    "ignored_at": "2026-09-14T15:35:50Z"
+  },
+  "06dc73e946b9b29a5dc5b75abc979aa7_4": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "Cleanup removes only the owned lock directory beside the Pi trust store after identity verification.",
+    "false_positive": true,
+    "ignored_at": "2026-09-14T15:35:50Z"
+  },
+  "516d893183f990bbab2ddd930dc6a7cd_0": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "Snapshots read paths produced by validated command plans and confined native-view roots.",
+    "false_positive": true,
+    "ignored_at": "2026-09-14T15:35:50Z"
+  },
+  "516d893183f990bbab2ddd930dc6a7cd_1": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "Directory actions use validated native-view and state paths selected during transaction preflight.",
+    "false_positive": true,
+    "ignored_at": "2026-09-14T15:35:50Z"
+  },
+  "516d893183f990bbab2ddd930dc6a7cd_2": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "Delete actions unlink only snapshotted managed symlinks after path and ownership preflight.",
+    "false_positive": true,
+    "ignored_at": "2026-09-14T15:35:50Z"
+  },
+  "516d893183f990bbab2ddd930dc6a7cd_3": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "Link actions use validated catalog sources and confined native-view destinations from the transaction plan.",
+    "false_positive": true,
+    "ignored_at": "2026-09-14T15:35:50Z"
+  },
+  "516d893183f990bbab2ddd930dc6a7cd_4": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "Relink actions unlink only a snapshotted catalog-managed symlink after ownership preflight.",
+    "false_positive": true,
+    "ignored_at": "2026-09-14T15:35:50Z"
+  },
+  "516d893183f990bbab2ddd930dc6a7cd_5": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "Delete-file actions remove only a snapshotted Kura state file after exact-byte preflight.",
+    "false_positive": true,
+    "ignored_at": "2026-09-14T15:35:50Z"
   }
 }

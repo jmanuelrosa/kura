@@ -1,167 +1,201 @@
-"""`kura list`.
-
-The layout came from `claude-skill list`, the fish function this replaced: same header,
-markers, colours and suffix order, so the two were indistinguishable while both shipped.
-Palette in colors.py, line vocabulary in ui.py, and test_list_format pins every row
-shape as a literal, escape codes included.
-
-    🧩 Available skills:
-      ✓ coderabbit (linked) [productivity, review, workflow]
-      · setup-review [ai, global, quality, review] (needs: skill-writer)
-      ✓ jira (linked) [productivity, tasks, workflow] (global for ac, research)
-      ↓ never-fetched (not downloaded) [engineering]
-
-Two suffixes answer "why is this here", from the two places that can answer it:
-`(global for X)` is a registry edge that pulled a skill into ~/.claude, `(installed for
-X)` a recorded project dependency. Only one can ever apply to a row.
-
-The emoji sits on the heading and nowhere else: rows carry a status glyph, which is
-single-width and keeps the suffix columns aligned.
-
-Read-only, so it never refuses for want of a project: in $HOME, the one directory that
-is not one, it reports global state and says so.
-
-`--json` prints `rows()` verbatim instead of rendering it, which is what makes this
-command the one source the Television cables read. They used to re-derive the
-catalogue, the dependency_only hiding, the effective global set and link status in jq
-and fish, against a *different* rule for what a project is, so a directory that is not
-a git repo showed every skill as available while this command showed them linked.
-Nothing on stdout but the payload, then: the $HOME aside goes to stderr and neither
-the heading nor the closing count is printed at all.
-"""
+"""List catalog skills, declared intent, and every selected native view."""
 
 import json
 import sys
 from pathlib import Path
 
 from .. import catalog as cat
-from .. import errors, paths, scope, state
-from ..cli import fail
-from .. import colors, ui
+from .. import colors, config, errors, harnesses, paths, scope, state, ui, views
+from . import common
 
 LINKED = "linked"
 AVAILABLE = "available"
 MISSING = "missing"
-
+DRIFT = "drift"
 GROUPS_HEADER = "📚 Available groups:"
 
-HEADER = {
-    cat.SKILL: "🧩 Available skills:",
-    cat.AGENT: "🤖 Available agents:",
-    cat.PLUGIN: "🔌 Available plugins:",
-}
+
+def _parents(catalog, manifest):
+    if manifest is None:
+        return {}
+    parents = {}
+    for direct in manifest.skills:
+        for name in cat.resolve(catalog, [direct]).names:
+            if name != direct:
+                parents.setdefault(name, []).append(direct)
+    return {name: tuple(sorted(values)) for name, values in parents.items()}
 
 
-def rows(catalog, kind, effective, home, project, provenance, group=None, claude=None):
-    """One row per visible artifact of `kind`, as dicts.
+def _physical_scope(catalog_root, art, home, project, global_harnesses, selected):
+    roots = views.accepted_skill_roots(catalog_root)
+    global_ids = tuple(sorted(set(global_harnesses) | set(selected)))
+    for installed, view_project, harness_ids in (
+        (scope.GLOBAL, None, global_ids),
+        (scope.PROJECT, project, selected if project is not None else ()),
+    ):
+        for harness_id in harness_ids:
+            path = harnesses.skill_path(harness_id, art.name, home, view_project)
+            if views.classify(path, art.source, roots).state in (views.CURRENT, views.STALE):
+                return installed
+    return None
 
-    Pure: takes resolved inputs and returns data, so filtering and annotation are
-    testable without a filesystem or a terminal.
 
-    Ordering is everything present on disk first, then registry entries never
-    downloaded: the walk reads the filesystem and backfills from the registry, which puts
-    the two states in separate alphabetical runs.
-    """
-    present, absent = [], []
-    # Derived here rather than passed in: it is a pure function of the catalog this
-    # already holds, and a seventh resolved input would have to be threaded through
-    # every caller to say something none of them decide.
+def _unknown_views(home, project, selected, name):
+    output = {}
+    for harness_id in selected:
+        path = harnesses.skill_path(harness_id, name, home, project)
+        if path.is_symlink():
+            output[harness_id] = {
+                "state": views.FOREIGN,
+                "target": str(scope.link_target(path)),
+            }
+        elif path.exists():
+            output[harness_id] = {"state": views.REAL}
+        else:
+            output[harness_id] = {"state": views.MISSING}
+    return output
+
+
+def rows(catalog, catalog_root, machine, home, project, manifest, group=None):
+    effective = set(scope.global_set(catalog))
+    resolution = cat.resolve(catalog, manifest.skills) if manifest else cat.Resolution(())
+    configured = set(manifest.skills if manifest else ()) | set(resolution.names)
+    selected = manifest.harnesses if manifest else ()
+    global_harnesses = machine.global_harnesses if machine else ()
+    parents = _parents(catalog, manifest)
     global_parents = scope.global_parents(catalog)
-    # cat.visible drops the dependency-only skills: offering one here would be an
-    # invitation to a refusal, since it cannot be added directly.
-    for art in cat.visible(catalog, kind):
+    output = []
+    for art in cat.visible(catalog, cat.SKILL):
         if isinstance(group, str) and group not in art.groups:
             continue
+        is_global = art.name in effective
+        is_configured = art.name in configured
+        view_map = {}
+        if is_configured:
+            harness_ids = selected
+            view_project = None if is_global else project
+            view_map = views.view_states(
+                catalog_root,
+                catalog,
+                home,
+                view_project,
+                harness_ids,
+                [art.name],
+            )[art.name]
+        elif is_global:
+            view_map = views.view_states(
+                catalog_root,
+                catalog,
+                home,
+                None,
+                global_harnesses,
+                [art.name],
+            )[art.name]
+        else:
+            scratch = views.view_states(
+                catalog_root,
+                catalog,
+                home,
+                None,
+                global_harnesses,
+                [art.name],
+            )[art.name]
+            if any(detail["state"] != views.MISSING for detail in scratch.values()):
+                view_map = scratch
 
-        where = scope.installed_scope(art, home, project, claude)
-        on_disk = art.source is not None and art.source.exists()
-        reason = provenance.get((kind, art.name))
-        # An untagged artifact sitting in ~/.claude can only have got there via
-        # --global, so its presence is the evidence. No pin file needed.
-        is_global = scope.belongs_global(art, effective) or where == scope.GLOBAL
-        # Only what a row renders. `tagged_global` and `origin` used to sit here too:
-        # nothing read either, both are one attribute lookup away on the artifact, and
-        # every hand-written row fixture had to mirror them.
-        #
-        # `parent` and `global_for` are both "why is this here", from the two sources
-        # that can answer it, and they are separate keys because they answer for
-        # different scopes: `parent` is a recorded project install, `global_for` a
-        # registry edge into ~/.claude. Collapsing them would leave a reader unable to
-        # tell a stored decision from a derived one.
-        row = {
-            "name": art.name,
-            "state": LINKED if where else (AVAILABLE if on_disk else MISSING),
-            "installed": where,
-            "global": is_global,
-            "groups": tuple(sorted(set(art.groups))),
-            "dependencies": tuple(sorted(set(art.dependencies))),
-            "reason": reason,
-            "parent": state.parent_of(reason) if reason else None,
-            "global_for": global_parents.get(art.name, ()) if art.type == cat.SKILL else (),
-        }
-        (present if on_disk else absent).append(row)
-    return present + absent
+        healthy = bool(view_map) and all(value["state"] == views.CURRENT for value in view_map.values())
+        on_disk = art.source.is_dir()
+        if not on_disk:
+            row_state = MISSING
+        elif is_configured or is_global:
+            row_state = LINKED if healthy else DRIFT
+        elif view_map:
+            row_state = LINKED if healthy else DRIFT
+        else:
+            row_state = AVAILABLE
+        installed = _physical_scope(
+            catalog_root,
+            art,
+            home,
+            project,
+            global_harnesses,
+            selected,
+        )
+        reason = None
+        parent = None
+        if manifest and art.name in manifest.skills:
+            reason = state.DIRECT
+        elif art.name in parents:
+            parent = parents[art.name][0]
+            reason = state.dep_of(parent)
+        output.append(
+            {
+                "name": art.name,
+                "state": row_state,
+                "installed": installed,
+                "global": is_global or installed == scope.GLOBAL,
+                "groups": tuple(sorted(set(art.groups))),
+                "dependencies": tuple(sorted(set(art.dependencies))),
+                "reason": reason,
+                "parent": parent,
+                "global_for": global_parents.get(art.name, ()),
+                "views": view_map,
+            }
+        )
+
+    missing_parents = {name: parent for parent, name in resolution.missing_dependencies}
+    missing_names = set(resolution.missing_direct) | set(missing_parents)
+    for name in sorted(missing_names - {row["name"] for row in output}):
+        direct = name in set(manifest.skills)
+        parent = None if direct else missing_parents.get(name)
+        output.append(
+            {
+                "name": name,
+                "state": MISSING,
+                "installed": None,
+                "global": False,
+                "groups": (),
+                "dependencies": (),
+                "reason": state.DIRECT if direct else state.dep_of(parent),
+                "parent": parent,
+                "global_for": (),
+                "views": _unknown_views(home, project, selected, name),
+            }
+        )
+    return sorted(output, key=lambda row: row["name"])
 
 
-def _marker(row, indent):
-    """The name and its state marker.
-
-    The whole "↓ name (not downloaded)" run is dimmed rather than just the glyph,
-    which is why this returns three shapes instead of one.
-    """
-    if row["state"] == LINKED:
-        tick = colors.paint("✓", "green")
-        return f"{indent}{tick} {row['name']} {colors.paint('(linked)', 'green')}"
-    if row["state"] == AVAILABLE:
-        return f"{indent}{colors.paint('·', 'dim')} {row['name']}"
-    label = "↓ {} (not downloaded)".format(row["name"])
-    return f"{indent}{colors.paint(label, 'dim')}"
-
-
-def _scope_label(row):
-    """The `(global…)` marker, naming what pulled the artifact into ~/.claude.
-
-    A skill global only via a dependency (jira, documentation-and-adrs,
-    planning-and-task-breakdown) carries no `global` tag, so without the parents the
-    marker could only say `(global)` and leave the obvious next question unanswered:
-    nothing the user typed mentions the skill, so nothing explains why `add` refuses it.
-    Naming the parent is the whole point, and the registry knows it.
-
-    A bare `(global)` remains the answer for a tagged artifact and for one hand-linked
-    into ~/.claude with --global, where no edge exists to name.
-    """
-    if not row["global_for"]:
-        return "(global)"
-    return "(global for " + ", ".join(row["global_for"]) + ")"
+def _view_detail(row):
+    if not row["views"]:
+        return ""
+    values = []
+    for harness_id, detail in row["views"].items():
+        suffix = f" -> {detail['target']}" if "target" in detail else ""
+        values.append(f"{harness_id} {detail['state']}{suffix}")
+    prefix = "linked" if row["state"] == LINKED else "drift"
+    return f" ({prefix}: {'; '.join(values)})"
 
 
 def format_row(row, indent="  ", show_groups=True):
-    """Render one row.
-
-    show_groups=False is the grouped view, where the tag is already the heading, so the
-    scope marker takes the place of the full group list.
-    """
-    parts = [_marker(row, indent)]
-
-    if show_groups:
-        if row["groups"]:
-            parts.append(colors.paint("[" + ", ".join(row["groups"]) + "]", "cyan"))
-        # Only when the groups suffix does not already carry `global`, which is the
-        # tagged case. Printing both would be the same fact twice on one row.
-        if row["global"] and "global" not in row["groups"]:
-            parts.append(colors.paint(_scope_label(row), "dim"))
-    elif row["global"]:
-        parts.append(colors.paint(_scope_label(row), "dim"))
-
+    if row["state"] == LINKED:
+        marker = f"{colors.paint('✓', 'green')} {row['name']}"
+    elif row["state"] == DRIFT:
+        marker = f"{colors.paint('!', 'magenta')} {row['name']}"
+    elif row["state"] == MISSING:
+        marker = colors.paint(f"↓ {row['name']} (missing)", "dim")
+    else:
+        marker = f"{colors.paint('·', 'dim')} {row['name']}"
+    parts = [indent + marker + _view_detail(row)]
+    if show_groups and row["groups"]:
+        parts.append(colors.paint("[" + ", ".join(row["groups"]) + "]", "cyan"))
     if row["dependencies"]:
         parts.append(colors.paint("(needs: " + ", ".join(row["dependencies"]) + ")", "dim"))
     if row["parent"]:
-        parts.append(colors.paint(f"(installed for {row['parent']})", "dim"))
+        parts.append(colors.paint(f"(derived from {row['parent']})", "dim"))
     return " ".join(parts)
 
 
 def grouped(listed):
-    """Rows bucketed by tag, for `--group` with no tag given."""
     buckets = {}
     for row in listed:
         for tag in row["groups"]:
@@ -170,60 +204,52 @@ def grouped(listed):
 
 
 def run(args):
-    # A bare `--group` asks for the grouped *view*, and JSON has no view: each row
-    # already carries its tags, so bucketing them is the caller's to do. Refused before
-    # any I/O, since it is a decision about the flags alone.
-    if args.json and args.group is True:
-        return fail(
-            errors.USAGE,
-            "--json emits rows, and a bare --group asks for a rendering of them. Every "
-            "row carries its `groups`, so bucket them downstream.\n"
-            f"  Run: kura list --type {args.type} --json",
+    def operation():
+        if args.json and args.group is True:
+            raise common.Refusal(
+                errors.USAGE,
+                "--json emits rows; every row already carries its groups.",
+            )
+        home = paths.home()
+        try:
+            machine = config.read(home)
+            catalog_root = config.effective_catalog(machine, home)
+        except config.Malformed as exc:
+            raise common.Refusal(errors.DRIFT, f"Invalid machine configuration: {exc}") from exc
+        catalog = common.loaded_catalog(catalog_root)
+        project = scope.project_root(Path.cwd(), home)
+        manifest = None
+        if project is not None and state.path_for(project).is_file():
+            manifest = common.manifest(project)
+        elif project is not None:
+            ui.note(
+                "This directory is not initialized. Project state is omitted; run `kura init` here.",
+                stream=sys.stderr,
+                indent=0,
+            )
+        listed = rows(catalog, catalog_root, machine, home, project, manifest, args.group)
+        if args.json:
+            print(json.dumps(listed))
+            return errors.OK
+        if args.group is True:
+            ui.title(GROUPS_HEADER)
+            for tag, members in grouped(listed):
+                print(f"  {colors.paint(tag + ':', 'cyan')}")
+                for row in members:
+                    print(format_row(row, indent="    ", show_groups=False))
+            return errors.OK
+        ui.title("🧩 Available skills:")
+        for row in listed:
+            print(format_row(row))
+        configured = len([row for row in listed if row["reason"] is not None])
+        links = sum(
+            1
+            for row in listed
+            for detail in row["views"].values()
+            if detail["state"] == views.CURRENT
         )
-
-    claude = paths.claude_dir()
-    home = paths.home()
-    catalog = cat.build_catalog(claude)
-    effective = scope.global_set(catalog)
-    project = scope.project_root(Path.cwd(), home)
-    provenance = state.read(project)
-
-    listed = rows(catalog, args.type, effective, home, project, provenance, args.group, claude)
-
-    if project is None:
-        # stderr under --json: the aside is still worth reading, and stdout is a payload
-        # a caller parses.
-        ui.note(
-            "Running in $HOME, which is never a project, so only global state is shown.",
-            indent=0,
-            stream=sys.stderr if args.json else None,
-        )
-
-    if args.json:
-        print(json.dumps(listed))
+        ui.blank()
+        ui.done(f"{len(listed)} skills, {configured} configured, {links} links current")
         return errors.OK
 
-    if args.group is True:
-        # `--group` with no tag: the grouped view.
-        ui.title(GROUPS_HEADER)
-        for tag, members in grouped(listed):
-            print(f"  {colors.paint(tag + ':', 'cyan')}")
-            for row in members:
-                print(format_row(row, indent="    ", show_groups=False))
-        return errors.OK
-
-    ui.title(HEADER[args.type])
-    for row in listed:
-        print(format_row(row))
-
-    visible = cat.visible(catalog, args.type)
-    installed = sum(1 for row in listed if row["installed"])
-    ui.blank()
-    if isinstance(args.group, str):
-        ui.done(
-            f"{len(listed)} of {len(visible)} {args.type}s tagged "
-            f"'{args.group}', {installed} installed"
-        )
-    else:
-        ui.done(f"{len(listed)} {args.type}s, {installed} installed")
-    return errors.OK
+    return common.run_guarded(operation)

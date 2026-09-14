@@ -16,11 +16,11 @@ pins both.
    ```sh
    tmp=$(mktemp -d) && mkdir -p "$tmp/home/.claude" && cp dist/kura "$tmp/"
    env -i PATH=/usr/bin:/bin HOME="$tmp/home" \
-     KURA_CATALOG="$PWD/tests/fixtures/catalog" "$tmp/kura" list --type plugin
+     KURA_CATALOG="$PWD/tests/fixtures/catalog" "$tmp/kura" list --type skill
    env -i PATH=/usr/bin:/bin HOME="$tmp/home" "$tmp/kura" list --type skill
    ```
 
-   The first must print the plugin listing. The second must refuse, naming the
+   The first must print the skill listing. The second must refuse, naming the
    default catalog path and `KURA_CATALOG`, because a machine with no catalog
    has nothing to manage and silence there would look like an empty catalog.
 4. After approval, create and push a `v<major>.<minor>.<patch>` tag. The release
