@@ -160,6 +160,7 @@ def lock(path):
     path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = Path(str(path) + LOCK_SUFFIX)
     owned = None
+    lock_descriptor = None
     for attempt in range(LOCK_ATTEMPTS):
         while True:
             try:
@@ -168,7 +169,8 @@ def lock(path):
                 if _reclaim_stale(lock_path):
                     continue
                 break
-            owned = lock_path.lstat()
+            lock_descriptor = os.open(lock_path, os.O_RDONLY)
+            owned = os.fstat(lock_descriptor)
             break
         if owned is not None:
             break
@@ -180,12 +182,18 @@ def lock(path):
         yield
     finally:
         try:
-            current = lock_path.lstat()
-        except FileNotFoundError:
-            raise OSError(f"Pi trust lock disappeared before cleanup at {lock_path}") from None
-        if (current.st_dev, current.st_ino) != (owned.st_dev, owned.st_ino):
-            raise OSError(f"Pi trust lock changed before cleanup at {lock_path}")
-        lock_path.rmdir()
+            try:
+                current = lock_path.lstat()
+            except FileNotFoundError:
+                raise OSError(f"Pi trust lock disappeared before cleanup at {lock_path}") from None
+            if (current.st_dev, current.st_ino) != (owned.st_dev, owned.st_ino):
+                raise OSError(f"Pi trust lock changed before cleanup at {lock_path}")
+            try:
+                lock_path.rmdir()
+            except OSError as exc:
+                raise OSError(f"Pi trust lock changed before cleanup at {lock_path}") from exc
+        finally:
+            os.close(lock_descriptor)
 
 
 def ancestors(path):
