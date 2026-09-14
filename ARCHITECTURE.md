@@ -1,98 +1,248 @@
 # kura
 
+Kura is a stdlib-only Python package that projects one declared skill set into the native skill directories of selected coding-agent harnesses.
+The first profiles are Claude Code and Pi.
 
-[kura/](kura) is a stdlib-only Python package managing skills, agents and plugins. [kura](kura) is a thin shim; the logic lives in the package **so pytest can import it**, which is the whole reason this is not a fish function. An extensionless executable cannot be imported, so tests could only ever drive it as a subprocess.
+The package lives under [kura/](kura), and [bin/kura](bin/kura) is only a development shim.
+A release is a deterministic executable zipapp built by [build.py](build.py).
 
-The shim finds the package by putting **its own directory** on `sys.path`, so the two must stay siblings. That matters in development, where the command is this checkout's shim; a release ships one self-contained executable, installed to `~/.local/bin/kura` by whatever provisions the machine (an Ansible role pinning a tag and a SHA-256 checksum, in the author's case). There is deliberately no `--version`: identity is the pinned tag plus the verified checksum, and a version string baked into the file could only ever agree with itself.
+## Domain boundaries
 
-**The catalog is injected, never discovered.** `paths.catalog_root` reads `KURA_CATALOG`, else `~/.local/share/kura/catalog`, and refuses if neither resolves to a directory: no search, no marker file. An earlier version walked up from `paths.py` for a `dotfiles.yml` marker, which worked only because the command on `PATH` was a symlink back into that checkout, so `resolve()` landed inside the repo; installed as a release asset there is no link to follow and no repo to find. A catalog is any directory holding `skill-registry.json`, `agent-registry.json`, `skills/`, `agents/` and `plugins/<name>/.claude-plugin/plugin.json`, and it is mutable state rather than a bundle, since `update` rewrites the skill registry and swaps skill directories in place. On the author's machine the default path is a symlink to a dotfiles checkout's `roles/ai/files/claude`, which is one deployment of many. Scope comparisons canonicalize both sides, because installed links may point through that stable alias or directly into its target and the two spellings describe the same artifact. **Refusing beats returning a path that is not there**: `build_catalog` against a missing root reads empty registries, an empty derived set makes every existing link look stale, and `sync` would then have to fall back on the `DRIFT` guard that exists for a registry which genuinely lost its `global` tags. Refusing early keeps that guard a backstop.
+A catalog owns skill content.
+Optional registry metadata adds groups, dependencies, global policy, and upstream source information.
+A project manifest owns portable project intent.
+Machine configuration owns the catalog path and globally enabled harnesses.
+Native views are derived filesystem state and never become another source of truth.
 
-Commands: `list`, `scout`, `add`, `remove`, `sync`, `update`, `outdated`, `doctor`, `adopt`, `restore`, `trust`, `converge`. **`--type skill|agent|plugin` is required on all of them except `doctor`, `adopt`, `restore`, `sync` and `scout`**, where it narrows an otherwise cross-type result: `doctor`'s checks cross types by nature, one `kura.json` holds all three for both `adopt` and `restore`, `sync` converges a directory holding all three, and a project's stack implies artifacts of all three. `trust` and `converge` accept no `--type` at all: workspace trust is a property of a directory rather than of an artifact, and what reaches Pi is decided by what is on disk, so in both cases a flag narrowing nothing would misdescribe the command. Nothing is inferred from a name, so the three namespaces may legally overlap and a collision is a `doctor` note rather than an error.
+Kura manages skills only in this phase.
+Legacy agent and plugin intent may be preserved in a project manifest, but it is inert.
+Kura does not launch harnesses, translate resource formats, select a default harness, or maintain an index of initialized projects.
 
-They fall into six families, and `kura -h` groups them that way: **scope-chosen** (`add`, `remove`) act on a project's `.claude/` or on `~/.claude`, and `--global` is how you say which; **scope-fixed** (`list`, `scout`, `doctor`, `adopt`, `restore`) have exactly one right answer given the cwd, so they accept no such flag; **global** (`sync`) acts on `~/.claude` and nowhere else, so `--global` is not an option there but the implied and only scope; **registry-wide** (`update`, `outdated`) rewrite the catalog's skill sources and accept no scope at all; **workspace trust** (`trust`) acts on Claude Code's own `~/.claude.json`; and **Pi's view** (`converge`) acts on a project's `.agents/`, or on every discovered project with `--all`. That last one is a family rather than a sixth scope-fixed command because the other four titles are each a claim about which `.claude/` a command touches, and it touches none of them: filing it with the artifact commands would have been true and would have hidden the one command to reach for when a plugin does not load.
-**Only `add` and `remove` define `--global`**, and the first two families are separate for exactly that reason: a family title is a claim about every command beneath it, so one split on the flag cannot have a title that is true. A single `Scope-aware (a project's .claude/, or ~/.claude with --global)` heading promised it to six commands of which four never had it, which is how `kura list --global` became a documented command that does not exist. Stating it in the titles is also what keeps it out of a closing footnote, where dim text at the foot of the page is the least readable place for the one fact the listing was missing. `test_help.py` checks the first family's membership against the built parser, that no family is split on the flag, and that the footer stays clear of it.
-Its refusal made that worse rather than better, so `Parser` corrects two argparse orderings: a missing required argument is raised before leftovers are examined, so `list --global` reported only the absent `--type` and revealed the real problem on the *next* run; and extras are caught by the root parser after the subcommand has parsed cleanly, so `list --type skill --global` printed the root usage and named none of `list`'s flags. `error` folds unknown `--` tokens (matched by prefix, since `allow_abbrev` makes `--typ` legal) into whatever message it was given, and `parse_args` hands an extras refusal to the subcommand instead of the root. argparse allows one subparsers action, so the grouped listing is a generated `epilog` in [cli.py](kura/cli.py) and the subparsers pass no `help=`, which is what suppresses the flat listing that would otherwise duplicate it. Adding a command means adding it to `COMMANDS`, `MODULE`, `FAMILIES` and `SCOPE`; `test_help.py` fails if it reaches the CLI without reaching the listing.
+The domain vocabulary is in [CONTEXT.md](CONTEXT.md).
+The accepted behavior is in [docs/specs/multi-harness-skills.md](docs/specs/multi-harness-skills.md) and [docs/specs/multi-harness-skills-ux.md](docs/specs/multi-harness-skills-ux.md).
 
-A command name and its module name are decoupled by `MODULE`, and two of them differ: `list` shadows a builtin, and `sync` would have collided with the module that held the name first. [commands/pull.py](kura/commands/pull.py) serves `update` and `outdated`, because fetching from upstream and converging `~/.claude` are unrelated acts and one word for both was the confusion worth spending a rename on.
+## Roots and configuration
 
-`scout` is the one command that starts from a **directory rather than a name**, which is what makes it the counterpart to `list` rather than a variant of it: `list` prints the whole catalogue alphabetically and says nothing about relevance, `add` assumes you already know the answer. [fingerprint.py](kura/fingerprint.py) reads the project into `{tag: evidence}` and [commands/scout.py](kura/commands/scout.py) ranks the catalogue's `groups` against it, so tags stay opaque strings and retagging the registry needs no code change here. Evidence comes in two grades and that is the whole of the two-tier report: **direct** (a declared dependency, a marker file, or the absence of one where its presence is the norm) ranks strongly, **implied** (a neighbour of a direct hit) is only worth considering. A tag never travels without the evidence string that produced it, and the report prints that verbatim — a recommendation nobody can check is one nobody should act on.
+There are three unrelated roots.
 
-Four rules keep it worth reading, and the first two are the ones not to weaken. **Nothing already available is offered**, which is wider than "linked in this project": `~/.claude` counts, and so does anything that *belongs* there whether or not `sync` has run, since offering a global artifact is offering to install what every project already loads. **An artifact carrying a tech tag the project does not use is dropped entirely**, however well its other tags match, because persona tags like `frontend` are shared by every framework's artifacts and one implied `frontend` hit would otherwise drag Astro and Apollo in beside React. That rule is satisfied by **direct** evidence alone, which is the obligation it puts on the vocabulary: the technology-facet section of the dotfiles note `docs/internals/skill-registry.md` records why a tech tag without a probe hides its artifacts instead of narrowing them. Broad tags (`engineering`, `global`) never earn a place, since matching on them ranks the whole catalogue. And a stack the catalogue does not cover falls back to stack-agnostic tags rather than returning nothing — guesses, so they land in the weaker tier and are never claimed as strong.
+1. The effective catalog contains source skills.
+2. `$HOME` contains machine configuration and global native views.
+3. Cwd is the exact project for every project command.
 
-`--add` installs the **strong tier only**, through `add.install_one` rather than by linking directly, so an accepted recommendation resolves dependencies, records provenance and prints the plugin restart hint exactly as a hand-typed `add` does. The weaker tier is a prompt to go and look, and no flag installs it. Nothing scout offers is global, so `--global` has nothing to say here.
+They are never inferred from one another.
+There is no Git project discovery and no ancestor search.
+A subdirectory is its own project when it has its own root `kura.json`.
+`$HOME` is excluded because its harness directories are global directories.
 
-`frontmatter.description` reads the same dialect `frontmatter.keys` validates, and the two stay separate functions because one may refuse and the other never does: a malformed block is `doctor`'s business, not a reason for a report to print a bare name. It folds the plain, continued and block-scalar forms alike — `grep -m1 '^description:'` handles only the first, which is how every skill written as `description: >-` used to reach the report with nothing beside its name.
+[kura/config.py](kura/config.py) reads `${XDG_CONFIG_HOME:-~/.config}/kura/config.json`.
+The versioned schema stores an absolute catalog path and a sorted non-empty set of globally enabled harness IDs.
+Unknown fields survive a valid rewrite so a newer producer does not lose unrelated state.
+Unknown versions and harness IDs refuse.
 
-Full command reference, worked examples and a corner-case FAQ live in [README.md](README.md). Tests assert every command, flag and exit code appears there, so it cannot silently fall behind the CLI.
+`KURA_CATALOG` overrides the saved catalog for the current process and is never persisted.
+A catalog mutation refuses while the override is set because changing the saved path would not change effective behavior.
+When no machine configuration exists, `~/.local/share/kura/catalog` remains the catalog fallback for read-oriented commands.
 
-**A project is any directory.** `scope.project_root` returns cwd, with no git call and no detection, so `add` works wherever you run it and a subdirectory is its own project rather than a window onto the repo above it. The single exception is `$HOME`, whose `.claude` *is* `~/.claude`: a project-scoped install there would be a silent global one, would load in every repo, and would then be pruned by the next `sync`. `NO_PROJECT` therefore has exactly one cause, which is why its messages name `$HOME` directly.
+[kura/paths.py](kura/paths.py) remains the catalog and `HOME` seam used by tests.
+It delegates effective catalog selection to the configuration module rather than growing another precedence rule.
 
-That rule holds for the **Television picker** too, an external consumer living in the author's fish configuration, because the picker no longer derives anything of its own. `list --json` prints [listing.rows](kura/commands/listing.py) verbatim, and the picker's two functions are a `printf` over that output and a toggle reading `.state` for the direction and `.global` for whether to pass `--global`. Neither reads a registry, a plugin manifest or the catalog path, and `--json` is why: it is the one output whose whole content is facts rather than a report of what a command did.
+## Harness profiles
 
-The picker used to derive all of it in jq and fish, anchored at the git top level because that is where a Claude session scans. Four of those five derivations had a python counterpart under test; the fifth, what counts as a project, had none, so a directory that is not a git repo (a container of checkouts, say) yielded no project at all, every non-global row rendered `[available]` however many links were on disk, and Enter then refused because kura could see them. A matching second copy would have been a second copy still, so the cable holds none, and a test beside the picker fails if one comes back, which is the only cover a fish function gets.
+[kura/harnesses.py](kura/harnesses.py) is the built-in declarative profile registry.
+Each profile supplies a stable ID, display name, executable, native project skill root, native global skill root, and project footprints used by initialization suggestions.
 
-Two rules carry most of the design:
+| Harness | Project skill root | Global skill root |
+|---|---|---|
+| Claude Code | `.claude/skills` | `~/.claude/skills` |
+| Pi | `.agents/skills` | `~/.agents/skills` |
 
-- **`--global` is mandatory whenever an artifact lands in `~/.claude` by direct request.** For a `global`-tagged artifact the flag is confirmation and its absence exits `WRONG_SCOPE`; for an untagged one it is an override. Dependencies are exempt: they resolve their own scope and never need the flag, or `add grill-me` would be impossible since `grilling` is both `dependency_only` and effectively global.
-- **`remove` cascades, but never leaves the project it starts in.** A global dependency is always kept and removing a global artifact cascades nothing, because kura standing in one project cannot see the others and would break them. Getting cross-scope removal right would need a machine-wide index of every project, which goes stale the moment a checkout moves.
+Executable detection does not decide whether skills are linked.
+A project may prepare a native view before a harness is installed.
+Executables matter only for initialization evidence and trust eligibility.
 
-`add` and `remove` also take **`--group <tag>`** instead of names, which is where those two rules meet. A tag is a filter rather than a name, so `--global` **partitions** it instead of confirming it: without the flag only the project members install and the global half is named in an aside, with it only the global half. Refusing each global member would make `WRONG_SCOPE` the normal outcome of adding a group, since most tags straddle both scopes, and installing them anyway would write into `~/.claude` unasked. Group mode is therefore **idempotent** rather than strict: an already-installed member (or, on `remove`, one that is not installed) is an aside and the run still exits `OK`, so a tag is a set to converge on. An unknown tag is `NOT_FOUND`, and `--group` **excludes names** in the same call, because the closing `✨ Linked N of M` counts a tag's members and has no honest form when the call also carried unrelated names. `cat.in_group` is the one membership view, so a `dependency_only` skill is never a member and still arrives through its parent. On `remove`, expansion reads what is **linked in the selected scope** and consults no global tag, mirroring why `remove.plan` takes no `effective` set.
+A selected skill gets one direct catalog link in each selected harness.
+No native view points through another harness.
+This replaces the old `.agents/skills -> ../.claude/skills` topology, which made Claude Code's directory an accidental canonical store.
 
-The cascade needs `<project>/.claude/kura.json`, which records **why** each project-scoped artifact is present (`direct` or `dep-of:<parent>`). Reading the directory cannot substitute: `add tdd` then `add sdd` leaves byte-identical links to `add sdd` alone, yet `remove sdd` must keep `test-driven-development` in the first case and delete it in the second. The distinguishing fact is history. Eight of the ten dependency edges in the registry point at ordinary addable skills, so that ambiguity is the common case. There is deliberately **no pin file**: an untagged artifact in `~/.claude` can only have arrived via `--global`, so the symlink is the record.
+Version-sensitive trust behavior does not belong in profiles.
+Claude Code trust remains in [kura/workspace.py](kura/workspace.py), and Pi trust remains in [kura/pi_trust.py](kura/pi_trust.py).
 
-`kura adopt` rebuilds that file from disk, for a cloned repo that ships `.claude/` without the manifest and for every project the fish functions that preceded it set up. Without it those projects lose the cascade silently: `state.read` returns `{}`, `remove` takes its "no record, so keep it" branch, and the project collects dependencies nothing needs. What *is* recoverable is whether something installed **declares** an artifact, which is a fact about the registry read against the current directory rather than about history; what is lost is whether a declared skill was also named directly. So a declared skill is recorded `dep-of:<parent>` (what a clean `add <parent>` would have written, and what usually did happen), and `add`-ing it again promotes it back to `direct`. Adoption is idempotent and additive: an artifact already recorded is skipped, so a re-run tops up a partial file and can never demote a `direct` record. When several installed artifacts declare the same skill the alphabetically first is stored, which is safe rather than arbitrary because `remove.cascade` recomputes dependants from the registry and reads the record only through `state.is_direct` — **the recorded parent name reaches display and nothing else**.
+## Filesystem-first catalog
 
-`kura restore` is that file read the other way, and the two are mirrors: `adopt` reads the disk and writes the manifest, `restore` reads the manifest and links what it records. The clone is the case for both, since the symlinks hold absolute paths into the catalog and are never committed, so a repo shipping `.claude/kura.json` arrives with a full record and nothing installed. Only the **`direct`** rows are installed, each through `add.install_one`, which re-resolves the closure and rewrites the `dep-of:` rows itself: handing it those rows too would install them as though they had been asked for and record them `direct`, leaving a manifest that no longer arms the cascade. An already-linked row is the steady state rather than a refusal, as a `--group` member is. **Nothing is ever deleted**, so a row still unlinked at the end (its parent stopped declaring it, the registry dropped it) is a warning and a `DRIFT` exit rather than a silent forget; dropping a record stays `remove`'s job. This is also the one caller that needs `state.read_strict`: every other reader treats a corrupt manifest as "nothing recorded" so a `remove` is never blocked by one, but for `restore` that reads as a successful restore of nothing. `checks.provenance_drift`'s `stale-provenance` problem names the command, closing the loop the way `untracked-install` names `adopt`.
+[kura/catalog.py](kura/catalog.py) discovers every `skills/<name>/SKILL.md` before applying metadata.
+This makes the minimum catalog useful without a registry.
+A registry-free skill is project-scoped, has no groups or dependencies, has no durable global policy, and has no upstream update source.
 
-**Skills and plugins share `.claude/skills/`**, so a link's *name* never identifies its type. `scope.installed_names` classifies by which store in the catalog the link points into ([catalog.py](kura/catalog.py) keeps `LEAF` for where a type installs and `STORE` for where it is kept, and the two differ only for plugins). Comparing names alone counted every link as both a skill and a plugin.
+When `skill-registry.json` exists, its entries are merged onto discovered skills.
+Registered but absent sources remain representable so `list` and `doctor` can report missing content.
+For metadata-backed skills, the registry name, directory name, and frontmatter name must agree.
+A mismatch is attached to the catalog artifact and blocks planning that skill.
 
-Tests live in [tests/](tests), beside the package rather than inside it, at three altitudes, which is what the package layout buys: pure functions over literal dicts (most of them), `tmp_path` for real symlinks, and a handful of subprocess runs through the shim. `HOME` and `KURA_CATALOG` are the only environmental seams, and the second is pointed at a committed fixture catalog under [tests/fixtures/catalog/](tests/fixtures/catalog) by an autouse fixture, so no test reads whatever catalog the machine happens to have. Before the extraction these paths came from the dotfiles checkout and the suite asserted against the artifacts that repository held, which made a registry edit able to fail the application's tests; the assertions that were genuinely about that repository (its Ansible task wording, its registry membership, its seat routing, its real frontmatter corpus, its role manifests) stayed there. `update`/`outdated` stub one function, `upstream.fetch`, and build real tarballs in `tmp_path`, so extraction, the exclude set, the byte comparison and the atomic swap all run for real without a network.
+Dependency closure is recursive, deterministic, and cycle-safe.
+The project closure begins with the direct names in `kura.json`.
+The global closure begins with metadata-backed skills carrying the `global` group.
+Dependencies are never written to the project manifest.
 
-**Nothing imports `conftest`, and the suite directory has no `__init__.py`.** [test_packaging.py](tests/test_packaging.py) asserts the second, and both guard the same silent failure. In pytest's prepend import mode a `conftest.py` in a directory with no `__init__.py` is named, literally, `conftest`; pytest copes by keying its own registry on the path, but a test module's `from conftest import X` hits `sys.modules` and binds to whichever suite loaded last. That is not hypothetical: in the repository this came from, deleting one `tests/conftest.py` left four suites collecting clean for two commits by silently reading kura's paths. So shared paths and helpers come from a module named so no other directory can claim it ([kit_helpers.py](tests/kit_helpers.py)), and fixtures stay in `conftest.py` where a bare name is safe. An `__init__.py` is the same bug one level up, since `tests` is the name every suite directory of every tool wants; `kura` is not an identifier either, so the walk could not name a module from this directory even without the collision.
+`update` and `outdated` act only on skills whose metadata supplies an upstream source.
+A filesystem-only skill is therefore visible to `list` and installable without becoming an update target.
 
-Two constraints worth not breaking: the package is **stdlib-only at runtime** with no exemption, which is why [ui.py](kura/ui.py) and [colors.py](kura/colors.py) are vendored copies of the shared `dotkit` modules the dotfiles version imported through a sibling symlink, relatively imported now that there is no sibling to reach; and `pull.targets` iterates skills regardless of `--type`, so the `--type skill` guard in `update`/`outdated` is the only thing preventing a `--type agent` run from downloading every tracked repo.
+## Declarative project state
 
-PyYAML held the last exemption, in `doctor`'s frontmatter check, and it is what made the check useless where it counted: PyYAML is a test dependency, so on a machine with only `python3` the check reported that it had not run. [frontmatter.py](kura/frontmatter.py) replaces it by **scanning the dialect these artifacts write** rather than parsing YAML in general. That dialect is a flat mapping of scalars with folded values, multi-line plain values and the occasional nested `metadata`, and the failure the check exists for is lexical: an unquoted `": "` in a plain value, which YAML reads as a mapping where none is allowed, so the block fails whole and the artifact silently does not load.
+[kura/state.py](kura/state.py) owns `<project>/kura.json`.
+The versioned schema stores sorted selected harness IDs, sorted direct skill names, and optional inert legacy rows.
+Strict parsing rejects duplicates, malformed values, unknown harnesses, and unknown schema versions.
 
-The scanner is therefore **deliberately incomplete, and biased toward silence**: it reports only what is certainly malformed, so a construction it does not model reads as valid rather than broken. A false problem costs more than a missed one, because it teaches the reader to skip the report, which is exactly what happened when this check once emitted 69 findings on a clean repo. The contract is one-directional and [test_frontmatter.py](tests/test_frontmatter.py) is where it is held: **whatever the scanner calls malformed, PyYAML must also reject.** Its `CASES` table records the gaps it knowingly lets through (unterminated quotes, undefined aliases, errors nested under another key) and it runs every block in the fixture catalog past PyYAML too, plugin-bundled artifacts included, since those are in no registry and nothing else would scan them. PyYAML stays a test-only dependency, and it is the oracle rather than the implementation.
+The manifest is intended for version control and may be edited by a user.
+A malformed manifest never reads as an empty declaration.
+Mutations refuse, while `doctor` reports the invalid bytes as drift.
 
-`kura sync` is what provisions `~/.claude`, and [commands/provision.py](kura/commands/provision.py) is the promise made when a 130-line derivation, symlink and prune block came out of the author's `ai` role. That role now calls it in one `command` task, passing `--dry-run` under `ansible_check_mode` and reading `changed` off the `, 0 changes` marker in the closing summary; [test_provision.py](tests/test_provision.py) pins that wording here, since a reworded summary would otherwise make every play report changed.
+The old `.claude/kura.json` recorded historical `direct` and `dep-of:` provenance for skills, agents, and plugins.
+`init` migrates direct skill rows, drops dependency rows for re-derivation, preserves agent and plugin rows under `legacy`, writes the root manifest, and deletes the old file only after the complete transaction succeeds.
+If both manifests exist, incompatible direct or legacy meaning refuses with a semantic difference.
 
-It **converges** rather than adds, which makes it the one command that deletes something nobody named, and the three narrowings that make that safe are the thing not to weaken: only symlinks (so a hand-made directory survives), only links resolving into the catalog's stores (so a foreign link survives, and so a plugin is never mistaken for a stale skill given they share the `skills/` leaf), and only when the derived set is non-empty. That last one is the load-bearing one: a registry that loses its `global` tags derives an empty set, an empty set makes every existing link stale, and pruning to zero is indistinguishable from working correctly right up until Claude Code loads no skills at all. It exits `DRIFT` and touches nothing instead.
+A direct skill that becomes registry-global remains direct intent in the manifest.
+Its project links become redundant only after every selected harness has a current global link.
+If global policy disappears later, project convergence recreates its project links from unchanged intent.
 
-Two consequences worth stating plainly. `~/.claude` is owned by the registries, so **`add --global` on an artifact that is not tagged `global` is a scratch change**: it survives until the next sync and no longer, exactly as removing a global link by hand is undone by it. The tag is the only durable statement about what lives there. And unlike the Ansible block it replaces, sync covers **all three types**, so a plugin tagged `global` is now linked and an untagged one in `~/.claude` is now pruned; the old block left `plugins/` alone entirely because it only ever iterated skills and agents.
+## Desired state
 
-The `claude-skill` / `claude-agent` fish functions this replaced are **deleted**. What survives in the author's fish configuration is the Television picker, and only two functions of it: `_tv_claude_list` (rows, formatted from `kura list --json`) and `_tv_claude_toggle` (Enter, which reads that same listing and shells out to `kura add` / `remove`). The four helpers those two leaned on (three scope predicates and a jq prelude) are gone with them, each having been a second implementation of something python already owned.
+Let `direct` be the project manifest's skill names.
+Let `closure(direct)` be the recursive dependency closure from current metadata.
+Let `global` be the recursive closure of metadata-backed global roots.
 
-## Workspace trust
+The project intent is `closure(direct)`.
+The project native view is `closure(direct) - global`.
+The durable global native view is `global` in every globally enabled harness.
+Temporary global additions may exist until the next `sync`.
 
+A project operation that needs a global skill preflights two facts for each selected project harness:
 
-`kura trust` is the other half of a plugin install, and [workspace.py](kura/workspace.py) is the only code here that reads and writes **`~/.claude.json`**, a file Claude Code owns. Neither of its two derivations is ours to choose: both were read out of the 2.1.220 binary, because a key we compute differently from the way Claude Code computes it is a key Claude Code never reads.
+1. The harness is globally enabled in machine configuration.
+2. Its expected global link is current.
 
-- **The trust key is the git repo root, and for a linked worktree the *main* checkout**, reached through `.git/commondir` rather than by running git (the binary does not shell out either, which is what keeps the worktree cases testable against a fabricated layout). Every worktree of a repo therefore shares one answer and none has an entry of its own: on this machine every worktree of the dotfiles repo is keyed under `~/Developer/dotfiles`. Outside a repo the key is the directory itself. `normalise` is `abspath` + `normpath` and deliberately **not** `Path.resolve()`, since node's `path.resolve` does not follow symlinks and a realpathed key names a directory whose entry is never consulted.
-- **Trust is inherited.** The gate probes the key, then walks the **cwd's** ancestors to `/`. For a worktree those are two different lineages, which is why `granted_by` takes both. A trusted `~` trusts every project beneath it, which is the state this machine is in: six of the eight `projects` entries read `false` and all six are trusted.
+A missing direct skill already present in a manifest preserves intent and yields `DRIFT`.
+A missing dependency blocks the transaction because there is no complete desired state to apply.
 
-That second fact is why `granted_by` returns the granting *path* rather than a bool. "Trusted on its own key" and "trusted only because `~` is" call for opposite advice, and clearing a flag under a trusted ancestor is a real write that changes nothing observable. `trust --off` therefore warns, names the ancestor, prints the command that would clear it, and still exits `OK`: no cascade, for the same reason `remove` never leaves the project it starts in.
+## Link ownership and native views
 
-A write touches one field of one key, keeps the entry's other 33 possible fields, creates a missing entry with the same nine the trust dialog writes, and reproduces Claude Code's exact bytes (`indent=2`, no trailing newline, `ensure_ascii=False`) so a toggle is a one-line diff rather than a reformat of 76 KB. It is replaced atomically and keeps its mode, because the file holds an oauth account. Nothing here **creates** that file: a machine where Claude Code has never run has no trust to change, so `Missing` and `Unreadable` are separate exceptions and only the first can still answer a read.
+[kura/views.py](kura/views.py) classifies and plans native links.
+A desired destination can be missing, current, stale but catalog-managed, foreign, or a real path.
 
-`checks.untrusted_workspace` (G18) is the same question from doctor's side, and it fires **only when a plugin is actually linked**. Trust is Claude Code's business until something kura installed depends on it, and a finding nobody needs to act on is how a report earns being skipped.
+A link is manageable only when it occupies the expected harness path and resolves under the effective catalog's `skills` directory.
+A project deletion is further limited to names derived from the old or current project declaration for that transaction.
+A real path is always user-owned.
+A symlink outside the recognized catalog is always foreign.
+Neither is replaced or deleted.
 
-## The pi links, and the two checks over them
+During `config --catalog`, the previous catalog's skill root is recognized only inside that command's plan.
+That permits safe retargeting without persisting old ownership history.
+After the config write, links in omitted projects become foreign.
+Their repair requires manual removal before `restore` can create current links.
 
-`kura` maintains Pi's view of a project as well as Claude's, in [pi.py](kura/pi.py), and it is derived from disk rather than recorded: nothing about it reaches `kura.json`, so `converge` is safe to call unconditionally. Two halves, because Pi discovers each from a different place and never from `.claude/`:
+`restore` is additive.
+It creates missing links, refuses stale or conflicting destinations, and deletes nothing.
+`converge` and direct-intent mutations may relink stale managed destinations and remove managed links that the transaction's prior declaration no longer needs.
 
-- `<project>/.agents/skills` is one **directory** link at `.claude/skills`, so the two cannot disagree and there is no per-artifact work.
-- `<project>/.agents/agents/` holds **per-file** links to each installed plugin's `agents/*.md`, because a seat keeps its agent inside its own plugin and no single directory holds them all.
+## Transactions
 
-`kura converge` is the same convergence with nothing attached, and it exists because until it did, convergence was **only** ever a side effect. `add`, `remove`, `scout --add`, `restore` and `adopt` all converge both halves, so a project set up before `pi.py` existed stayed invisible to Pi until somebody happened to install something there: 28 directories on this machine were in that state, and G19's remedy could only name commands that install. The command installs nothing, records nothing and fetches nothing, which is what lets it run from a Claude Code `SessionStart` hook and from the `ai` role on every apply. A single-project run reports the steady state of both views, because `0 changes` alone says nothing about what the command checked. An `--all` sweep suppresses those per-project steady-state lines unless `--verbose` is passed, while `--quiet` keeps hook stdout empty and still sends warnings to stderr. `--all` sweeps [projects.py](kura/projects.py), the union of Claude Code's own `~/.claude.json` project keys with a walk of `~/Developer`: the registry reaches a checkout living nowhere near the roots, the walk finds a project the registry never recorded, and a directory is dropped unless Pi actually has something to miss there. Every leaf it creates gets a `.gitignore` **inside** `.agents/`, naming `skills`, `agents` and itself, because the agent links are absolute paths into the catalog and committing one hands a teammate a dangling link, while a project's root `.gitignore` is not ours to edit. It names itself because a `.gitignore` is not covered by its own patterns, so without that line `git status` still reports the directory.
+[kura/transaction.py](kura/transaction.py) applies filesystem plans.
+Every mutating command first validates configuration, manifests, catalog content, global requirements, source paths, native roots, and every destination across every harness.
+`--yes` never bypasses those checks.
 
-`add`, `remove`, `scout --add`, `restore` and `adopt` all converge both. The last two are recent and were each blind in a way worth remembering: convergence happens inside `add.install_one`, so `restore` skipped it on its "nothing to restore" branch, which is the exact state `pi-unreachable` fires on and names `restore` as the fix, and `adopt` reached it not at all despite its whole population being projects that predate the links.
+A transaction snapshots each changed regular file's exact bytes and mode and each changed symlink's original target.
+Actions are deterministic: directory creation, managed deletion, relinking, creation, then state writes.
+Configuration and project manifest writes occur last.
+If a later action fails, snapshots are restored in reverse order and newly created empty directories are pruned.
+A rollback failure is reported separately and returns `DRIFT`.
 
-Two doctor checks cover them, both `NOTE` for the same reason `G18` is not one: nothing about Claude Code is broken, and a machine that does not run Pi has nothing to act on.
+This model is why a conflict in Pi prevents an otherwise valid Claude Code link from being created.
+A multi-harness mutation is one logical operation rather than a loop of independent installations.
+Reports count selected skills separately from physical links.
 
-- **G19 `pi-unreachable`**: the project's skills are linked and `.agents/skills` is missing or occupied by something else.
-- **G20 `pi-agents-unreachable`**: the project's plugin agents are installed and their per-file links are missing, or `.agents/agents` is not a directory. Silent when no plugin ships an agent, since there is then nothing for Pi to be missing.
-- **G21 `split-context`**: the project holds two instruction files where each harness reads a different one. Pi takes the first of `AGENTS.override.md`, `AGENTS.md`, `AGENTS.MD`, `CLAUDE.md`, `CLAUDE.MD` that exists and Claude Code takes `CLAUDE.md`, so the pair drifts silently; in one real project they reached 47 lines against 79. **Silent when a project has only `CLAUDE.md`, which Pi reads natively**, and silent when the earlier file is a link to it, since that link is the fix. No `kind`, because an instruction file is not one of the three types.
+## Project lifecycle
 
-[pi_trust.py](kura/pi_trust.py) is the other half of `trust`, and reads only. Pi keeps its own `~/.pi/agent/trust.json` whose key is the realpathed cwd rather than the git root, where the nearest entry wins even when it is a refusal. `trust` reports both stores and writes only Claude's, because Pi guards its file with a lock and accepting Pi's own prompt once records the same decision.
+`init` is the first project mutation.
+It gathers harness selection, bootstraps missing machine configuration, prepares instruction files, migrates legacy state, preflights native views, and asks once before applying an interactive plan.
+A noninteractive first run supplies repeated harness flags, an absolute catalog, repeated global harness flags, and `--yes`.
+
+The shared instruction surface is `AGENTS.md`.
+Claude Code receives a minimal `CLAUDE.md` containing `@AGENTS.md` when a bridge is needed.
+A lone existing `CLAUDE.md` is preserved because Pi reads it natively.
+Existing split files are never rewritten automatically.
+
+Re-running `init` replaces selected harnesses and retains direct skills.
+Removing a harness deletes only links proven managed from the previous project declaration.
+
+`add` and `remove` modify direct skill names, derive the new closure, reconcile all selected views, and write the manifest last.
+`remove --no-cascade` remains parseable as a deprecated compatibility option, but dependency presence is defined by declarative closure rather than historical provenance.
+
+`adopt` considers catalog-backed links in selected harnesses.
+Same-name links with different targets refuse.
+It chooses roots not reached by another installed skill, breaks uncovered cycles deterministically, augments existing direct intent, omits derived names, and fills missing selected views.
+
+`converge --all` uses [kura/projects.py](kura/projects.py).
+It recursively scans cwd unless explicit roots replace it, includes each root, has no depth cap, does not follow directory symlinks, and prunes hidden, VCS, dependency, cache, build, and vendor trees.
+Only root `kura.json` marks a project.
+Claude Code's private project registry and a Kura project index are not consulted.
+
+## Global lifecycle
+
+`sync` derives global policy once and reconciles every globally enabled harness.
+It prunes only symlinks resolving under the current catalog.
+Real paths, foreign links, and legacy agent or plugin state are outside its ownership.
+
+The empty-desired guard remains load-bearing.
+When desired global state is empty and managed state is also empty, sync succeeds.
+When desired global state is empty but managed links remain, sync returns `DRIFT` and deletes nothing.
+This prevents a malformed or accidentally emptied registry from silently clearing every global skill.
+The closing summary retains `, 0 changes` because machine provisioning uses that exact marker.
+
+Global `add` and `remove` are explicit scratch operations across every globally enabled harness.
+They create no global manifest.
+The next `sync` restores registry policy.
+
+`config` mutations reconcile global views in the same transaction as the configuration write.
+A removed global harness is an explicit request, so its managed links can be removed without applying the ambiguous empty-policy pruning rule to harnesses that remain selected.
+
+## Listing and diagnostics
+
+[kura/commands/listing.py](kura/commands/listing.py) keeps the established JSON fields and adds `views`, keyed by harness ID.
+A configured skill is `linked` only when every required native view is current.
+Any missing, stale, foreign, or real-path view makes the row `drift` and names each harness.
+JSON stdout contains only JSON, while initialization notices remain on stderr.
+
+`doctor` orders actionable drift before informational notes.
+Invalid machine configuration, invalid manifests, missing content, dependency failures, collisions, and incorrect native views return `DRIFT`.
+Missing executables, trust not granted, split instructions, and preserved legacy state are notes.
+It can run without a project manifest and still checks the effective catalog and global state.
+
+## Trust adapters
+
+`trust` is cwd-only and requires the root project manifest.
+Selected harnesses without an executable on `PATH` are reported and skipped.
+A mutation refuses if none of the selected harness executables is available.
+
+Claude Code's key is its Git root, or the main checkout for a linked worktree, and trust may be inherited from a cwd ancestor.
+Those private semantics remain isolated in [kura/workspace.py](kura/workspace.py).
+Kura never creates a missing `~/.claude.json`.
+
+Pi's key is canonical cwd, and the nearest parent boolean wins.
+Its trust file is `~/.pi/agent/trust.json` with sorted JSON and a trailing newline.
+Writes acquire the same `<trust.json>.lock` directory shape used by Pi's proper-lockfile integration.
+The lock is acquired before either harness store is changed, so a lock conflict cannot leave Claude Code changed alone.
+
+Cross-harness trust writes use the same byte-and-mode rollback guarantees as artifact transactions.
+Pi's trust format and lock are private, version-sensitive adapter contracts rather than public Pi APIs.
+
+## Tests and release
+
+Tests live in [tests/](tests) outside the package and use three altitudes: pure value tests, `tmp_path` filesystem tests, and limited subprocess coverage through the shim.
+`HOME` and `KURA_CATALOG` remain environmental seams.
+No test imports `conftest`, and `tests/` has no `__init__.py`, avoiding Python module-name collisions across suites.
+
+Runtime imports remain standard-library only.
+PyYAML is a test oracle for the intentionally narrow frontmatter scanner and never a runtime dependency.
+
+[build.py](build.py) writes sorted package members with fixed zip timestamps.
+Two builds of one source tree therefore produce the same checksum.
+The shim and package stay separate because the package must remain directly importable for fast tests.
