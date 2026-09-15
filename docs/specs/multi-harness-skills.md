@@ -33,7 +33,7 @@ The CLI behavior is defined in [multi-harness-skills-ux.md](multi-harness-skills
 - Every selected harness receives the same managed project skill set.
 - Every globally enabled harness receives the same registry-global skill set.
 - Each harness reads its own documented native directory without settings changes.
-- Native links point directly to the configured catalog skill.
+- Native links point directly to the fixed catalog skill.
 - A real path or foreign symlink is never replaced or deleted.
 - A mutation that spans harnesses is preflighted before any write.
 - `sync` retains the exact `, 0 changes` closing marker.
@@ -54,7 +54,6 @@ Schema:
 ```json
 {
   "schemaVersion": 1,
-  "catalog": "/absolute/path/to/catalog",
   "globalHarnesses": ["claude", "pi"]
 }
 ```
@@ -62,13 +61,10 @@ Schema:
 Rules:
 
 - `schemaVersion` must be `1`.
-- `catalog` is an absolute path.
 - `globalHarnesses` is a sorted, unique, non-empty list of known harness IDs.
 - Unknown fields may be preserved when Kura rewrites a valid file, but they do not affect behavior.
+- The retired `catalog` field is accepted from an older configuration and removed on rewrite.
 - Unknown schema versions and harness IDs are refusals.
-- `KURA_CATALOG` overrides `catalog` at runtime and is never persisted.
-- A catalog mutation is refused while `KURA_CATALOG` is set because the saved path would not become effective.
-- The existing `~/.local/share/kura/catalog` location remains the fallback while no machine config exists.
 - First-run `init` may create machine config after explicit confirmation.
 
 ### Project manifest
@@ -119,6 +115,9 @@ Rules:
 - The file is intended for version control.
 
 ### Catalog
+
+The catalog path is always `~/.config/kura/catalog`, derived from `$HOME` without consulting `XDG_CONFIG_HOME`.
+No CLI flag, environment variable, fallback, or machine configuration field changes it.
 
 The minimum valid catalog is:
 
@@ -221,19 +220,15 @@ A project link is managed only when all conditions hold:
 1. It occupies the selected harness's expected path for the skill name.
 2. The skill belongs to direct or derived project state.
 3. It is a symlink.
-4. It resolves under the effective catalog's `skills` directory.
+4. It resolves under the fixed catalog's `skills` directory.
 
 A global link uses the same test against registry-global or scratch-global state.
-During `kura config --catalog`, the old catalog path is also accepted for that command's migration plan.
-The old path is not persisted afterward.
 
 Consequences:
 
 - A real directory is always user-owned.
-- A symlink outside the recognized catalog is foreign.
-- An omitted project after a catalog move keeps its old links, which become foreign after the command ends.
-- Repairing such an omitted project requires manual removal of those links before `restore`.
-- Every catalog-change preview must state this consequence and accept repeatable `--root` values.
+- A symlink outside the fixed catalog is foreign.
+- Repairing a link to an old catalog requires manual removal before `restore`.
 
 ## Transaction model
 
@@ -261,10 +256,10 @@ It uses cwd and refuses in `$HOME`.
 It suggests harnesses from project footprints and installed executables, with footprints ranked above executables.
 The user must select at least one harness and is never asked for a default.
 
-If machine config is absent, interactive initialization also collects the catalog and globally enabled harnesses.
-An explicitly selected missing catalog may be created after confirmation with only `skills/`.
-Noninteractive bootstrap accepts repeated `--harness`, `--catalog`, repeated `--global-harness`, and `--yes`.
-Machine flags on `init` refuse after machine config exists and direct the user to `config`.
+If machine config is absent, interactive initialization collects globally enabled harnesses.
+A missing fixed catalog may be created after confirmation with only `skills/`.
+Noninteractive bootstrap accepts repeated `--harness`, repeated `--global-harness`, and `--yes`.
+`--global-harness` on `init` refuses after machine config exists and directs the user to `config`.
 
 Re-running `init` replaces the selected harness set, retains direct skills, and converges views.
 Removing a harness deletes only its managed links.
@@ -288,15 +283,9 @@ Foreign or real content causes refusal and an unconditional per-entry difference
 
 ### `config`
 
-Bare `config` prints saved and effective machine configuration.
-`--catalog PATH` changes the catalog.
+Bare `config` prints the saved machine configuration and fixed catalog path.
 Repeated `--harness` replaces `globalHarnesses`.
 Mutations support `--yes`, `--dry-run`, and `--verbose` and converge global views in the same transaction.
-
-A catalog change knows the old catalog only during that command.
-It retargets global links, the initialized cwd project, and projects beneath repeatable `--root` paths.
-It does not perform an implicit recursive cwd scan.
-It warns that omitted projects become foreign drift and require manual cleanup.
 
 ### `add` and `remove`
 

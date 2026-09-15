@@ -74,20 +74,18 @@ When machine config is absent:
 ```text
 Kura needs machine configuration before this project can be initialized.
 
-Catalog: ~/.local/share/kura/catalog
+Catalog: ~/.config/kura/catalog
 Globally enabled harnesses:
   [x] Claude Code
   [x] Pi
 ```
 
-A missing explicitly selected catalog offers one choice:
+A missing fixed catalog offers one choice:
 
 ```text
 The catalog directory does not exist.
-Create /path/to/catalog with an empty skills/ directory? [y/N]
+Create ~/.config/kura/catalog with an empty skills/ directory? [y/N]
 ```
-
-An inferred or environment-provided missing catalog is refused rather than created.
 
 ### New project plan
 
@@ -175,13 +173,12 @@ Complete first-run bootstrap:
 kura init \
   --harness claude \
   --harness pi \
-  --catalog /path/to/catalog \
   --global-harness claude \
   --global-harness pi \
   --yes
 ```
 
-After machine config exists, `--catalog` and `--global-harness` refuse and name `kura config`.
+After machine config exists, `--global-harness` refuses and names `kura config`.
 Missing required choices in a non-TTY session are usage errors.
 `--dry-run` does not require `--yes` and writes nothing.
 
@@ -192,26 +189,14 @@ Bare output:
 ```text
 ⚙ Kura machine configuration
   File: ~/.config/kura/config.json
-  Catalog: /path/to/catalog
-  Effective catalog: /path/to/catalog
+  Catalog: ~/.config/kura/catalog
   Global harnesses: claude, pi
 ```
 
-When `KURA_CATALOG` is set, show saved and effective values and the environment source.
-A catalog mutation while the override is active refuses.
-
-A mutation previews global link changes and any initialized cwd or explicit roots included in a catalog move.
+A mutation previews global link changes.
 
 ```text
-kura config --catalog /new/catalog --root ~/Developer --yes
-```
-
-The warning is mandatory:
-
-```text
-⚠ Kura remembers the old catalog only for this command.
-  Projects outside the scanned roots will keep old links.
-  Those links will become foreign and must be removed manually before `kura restore` can recreate them.
+kura config --harness claude --harness pi --yes
 ```
 
 Repeated `--harness` values replace the complete global set.

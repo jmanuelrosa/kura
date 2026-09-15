@@ -18,7 +18,7 @@ def skill(catalog, name):
 
 
 def catalog_at(path, metadata=None):
-    path.mkdir()
+    path.mkdir(parents=True)
     (path / "skills").mkdir()
     for name in ("review", "helper", "global-tool"):
         skill(path, name)
@@ -34,7 +34,7 @@ def setup(tmp_path, monkeypatch):
     home.mkdir()
     project.mkdir()
     catalog = catalog_at(
-        tmp_path / "catalog",
+        config.catalog_path(home),
         {
             "local_skills": [
                 {"name": "review", "dependencies": ["helper"], "groups": ["review"]},
@@ -45,7 +45,6 @@ def setup(tmp_path, monkeypatch):
     )
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
-    monkeypatch.delenv("KURA_CATALOG", raising=False)
     monkeypatch.chdir(project)
     return home, project, catalog
 
@@ -58,8 +57,6 @@ def initialize(catalog):
             "claude",
             "--harness",
             "pi",
-            "--catalog",
-            str(catalog),
             "--global-harness",
             "claude",
             "--global-harness",
@@ -69,32 +66,32 @@ def initialize(catalog):
     )
 
 
-def test_machine_config_round_trip_preserves_unknown_fields(tmp_path):
+def test_machine_config_round_trip_preserves_unknown_fields_and_drops_old_catalog():
     parsed = config.parse(
         {
             "schemaVersion": 1,
-            "catalog": str(tmp_path),
+            "catalog": "/old/catalog",
             "globalHarnesses": ["claude", "pi"],
             "future": {"value": 1},
         }
     )
-    assert config.loads(config.dump(parsed)).extra == {"future": {"value": 1}}
+    dumped = config.dump(parsed)
+    assert config.loads(dumped).extra == {"future": {"value": 1}}
+    assert "catalog" not in json.loads(dumped)
 
 
 @pytest.mark.parametrize(
     "field,value",
     [
         ("schemaVersion", 2),
-        ("catalog", "relative"),
         ("globalHarnesses", ["pi", "claude"]),
         ("globalHarnesses", ["claude", "claude"]),
         ("globalHarnesses", ["other"]),
     ],
 )
-def test_machine_config_rejects_invalid_contracts(tmp_path, field, value):
+def test_machine_config_rejects_invalid_contracts(field, value):
     data = {
         "schemaVersion": 1,
-        "catalog": str(tmp_path),
         "globalHarnesses": ["claude"],
     }
     data[field] = value
@@ -184,46 +181,6 @@ def test_restore_fills_one_missing_view_without_deleting_extras(setup):
     assert cli.main(["restore"]) == errors.OK
     assert harnesses.skill_path("pi", "review", home, project).is_symlink()
     assert extra.is_symlink()
-
-
-def test_catalog_move_retargets_global_and_current_project(setup, tmp_path):
-    home, project, old_catalog = setup
-    initialize(old_catalog)
-    cli.main(["add", "review", "--type", "skill"])
-    new_catalog = tmp_path / "new-catalog"
-    new_catalog.mkdir()
-    (new_catalog / "skills").mkdir()
-    for name in ("review", "helper", "global-tool"):
-        skill(new_catalog, name)
-    (new_catalog / "skill-registry.json").write_bytes(
-        (old_catalog / "skill-registry.json").read_bytes()
-    )
-    assert cli.main(["config", "--catalog", str(new_catalog), "--yes"]) == errors.OK
-    assert harnesses.skill_path("pi", "review", home, project).resolve() == (
-        new_catalog / "skills" / "review"
-    )
-    assert config.read(home).catalog == new_catalog
-
-
-def test_harness_reconfiguration_uses_but_does_not_persist_catalog_override(setup, tmp_path, monkeypatch):
-    home, project, saved_catalog = setup
-    initialize(saved_catalog)
-    override = tmp_path / "override"
-    override.mkdir()
-    (override / "skills").mkdir()
-    for name in ("review", "helper", "global-tool"):
-        skill(override, name)
-    (override / "skill-registry.json").write_bytes(
-        (saved_catalog / "skill-registry.json").read_bytes()
-    )
-    for harness_id in ("claude", "pi"):
-        harnesses.skill_path(harness_id, "global-tool", home).unlink()
-    monkeypatch.setenv("KURA_CATALOG", str(override))
-    assert cli.main(["config", "--harness", "claude", "--yes"]) == errors.OK
-    assert config.read(home).catalog == saved_catalog
-    assert harnesses.skill_path("claude", "global-tool", home).resolve() == (
-        override / "skills" / "global-tool"
-    )
 
 
 def test_project_scan_uses_root_manifests_without_depth_cap(tmp_path):
@@ -356,35 +313,6 @@ def test_catalog_rejects_a_skill_source_escaping_its_root(setup, tmp_path):
     assert cli.main(["add", "escape", "--type", "skill"]) == errors.DRIFT
 
 
-def test_config_can_repair_a_catalog_that_was_physically_moved(setup, tmp_path):
-    home, project, old_catalog = setup
-    initialize(old_catalog)
-    cli.main(["add", "review", "--type", "skill"])
-    new_catalog = tmp_path / "renamed-catalog"
-    old_catalog.rename(new_catalog)
-    assert cli.main(["config", "--catalog", str(new_catalog), "--yes"]) == errors.OK
-    assert harnesses.skill_path("pi", "review", home, project).resolve() == (
-        new_catalog / "skills" / "review"
-    )
-
-
-def test_catalog_move_never_treats_home_as_a_project(setup, tmp_path, monkeypatch):
-    home, _, old_catalog = setup
-    initialize(old_catalog)
-    state.write(home, state.Manifest(("claude",), ("review",)))
-    new_catalog = tmp_path / "new-home-catalog"
-    new_catalog.mkdir()
-    (new_catalog / "skills").mkdir()
-    for name in ("review", "helper", "global-tool"):
-        skill(new_catalog, name)
-    (new_catalog / "skill-registry.json").write_bytes(
-        (old_catalog / "skill-registry.json").read_bytes()
-    )
-    monkeypatch.chdir(home)
-    assert cli.main(["config", "--catalog", str(new_catalog), "--yes"]) == errors.OK
-    assert not (home / ".claude" / "skills" / "review").exists()
-
-
 def test_state_merge_refuses_legacy_direct_intent_missing_from_root():
     root = state.Manifest(("claude",), ())
     legacy = state.Manifest(("claude",), ("review",))
@@ -491,8 +419,6 @@ def test_init_and_config_dry_runs_write_nothing(setup, tmp_path):
             "init",
             "--harness",
             "claude",
-            "--catalog",
-            str(catalog),
             "--global-harness",
             "claude",
             "--dry-run",

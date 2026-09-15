@@ -11,7 +11,8 @@ A release is a deterministic executable zipapp built by [build.py](build.py).
 A catalog owns skill content.
 Optional registry metadata adds groups, dependencies, global policy, and upstream source information.
 A project manifest owns portable project intent.
-Machine configuration owns the catalog path and globally enabled harnesses.
+Machine configuration owns globally enabled harnesses.
+The catalog has one fixed machine location.
 Native views are derived filesystem state and never become another source of truth.
 
 Kura manages skills only in this phase.
@@ -23,28 +24,27 @@ The accepted behavior is in [docs/specs/multi-harness-skills.md](docs/specs/mult
 
 ## Roots and configuration
 
-There are three unrelated roots.
+There are three explicit locations.
 
-1. The effective catalog contains source skills.
-2. `$HOME` contains machine configuration and global native views.
+1. `~/.config/kura/catalog` contains source skills.
+2. `${XDG_CONFIG_HOME:-~/.config}/kura/config.json` contains machine configuration.
 3. Cwd is the exact project for every project command.
 
-They are never inferred from one another.
+The catalog location cannot be configured or overridden, and none of these locations is discovered from another.
 There is no Git project discovery and no ancestor search.
 A subdirectory is its own project when it has its own root `kura.json`.
 `$HOME` is excluded because its harness directories are global directories.
 
 [kura/config.py](kura/config.py) reads `${XDG_CONFIG_HOME:-~/.config}/kura/config.json`.
-The versioned schema stores an absolute catalog path and a sorted non-empty set of globally enabled harness IDs.
-Unknown fields survive a valid rewrite so a newer producer does not lose unrelated state.
+The versioned schema stores a sorted non-empty set of globally enabled harness IDs.
+Unknown fields survive a valid rewrite so a newer producer does not lose unrelated state, while the retired `catalog` field is discarded on rewrite.
 Unknown versions and harness IDs refuse.
 
-`KURA_CATALOG` overrides the saved catalog for the current process and is never persisted.
-A catalog mutation refuses while the override is set because changing the saved path would not change effective behavior.
-When no machine configuration exists, `~/.local/share/kura/catalog` remains the catalog fallback for read-oriented commands.
+The same module derives the catalog only from `$HOME` as `~/.config/kura/catalog`.
+It does not consult `XDG_CONFIG_HOME`, machine configuration, or environment overrides for that path.
+Read-oriented commands may use the fixed catalog without machine configuration, while mutations that require machine policy still refuse when configuration is absent.
 
-[kura/paths.py](kura/paths.py) remains the catalog and `HOME` seam used by tests.
-It delegates effective catalog selection to the configuration module rather than growing another precedence rule.
+[kura/paths.py](kura/paths.py) remains the `HOME` seam used by tests and delegates fixed catalog validation to the configuration module.
 
 ## Harness profiles
 
@@ -128,16 +128,14 @@ A missing dependency blocks the transaction because there is no complete desired
 [kura/views.py](kura/views.py) classifies and plans native links.
 A desired destination can be missing, current, stale but catalog-managed, foreign, or a real path.
 
-A link is manageable only when it occupies the expected harness path and resolves under the effective catalog's `skills` directory.
+A link is manageable only when it occupies the expected harness path and resolves under the fixed catalog's `skills` directory.
 A project deletion is further limited to names derived from the old or current project declaration for that transaction.
 A real path is always user-owned.
 A symlink outside the recognized catalog is always foreign.
 Neither is replaced or deleted.
 
-During `config --catalog`, the previous catalog's skill root is recognized only inside that command's plan.
-That permits safe retargeting without persisting old ownership history.
-After the config write, links in omitted projects become foreign.
-Their repair requires manual removal before `restore` can create current links.
+Links to any other catalog path are foreign.
+Their repair requires manual removal before `restore` can create links to the fixed catalog.
 
 `restore` is additive.
 It creates missing links, refuses stale or conflicting destinations, and deletes nothing.
@@ -163,7 +161,8 @@ Reports count selected skills separately from physical links.
 
 `init` is the first project mutation.
 It gathers harness selection, bootstraps missing machine configuration, prepares instruction files, migrates legacy state, preflights native views, and asks once before applying an interactive plan.
-A noninteractive first run supplies repeated harness flags, an absolute catalog, repeated global harness flags, and `--yes`.
+A noninteractive first run supplies repeated project and global harness flags plus `--yes`.
+When the fixed catalog is absent, `init` may create its empty `skills/` directory after confirmation.
 
 The shared instruction surface is `AGENTS.md`.
 Claude Code receives a minimal `CLAUDE.md` containing `@AGENTS.md` when a bridge is needed.
@@ -214,7 +213,7 @@ JSON stdout contains only JSON, while initialization notices remain on stderr.
 `doctor` orders actionable drift before informational notes.
 Invalid machine configuration, invalid manifests, missing content, dependency failures, collisions, and incorrect native views return `DRIFT`.
 Missing executables, trust not granted, split instructions, and preserved legacy state are notes.
-It can run without a project manifest and still checks the effective catalog and global state.
+It can run without a project manifest and still checks the fixed catalog and global state.
 
 ## Trust adapters
 
@@ -237,7 +236,7 @@ Pi's trust format and lock are private, version-sensitive adapter contracts rath
 ## Tests and release
 
 Tests live in [tests/](tests) outside the package and use three altitudes: pure value tests, `tmp_path` filesystem tests, and limited subprocess coverage through the shim.
-`HOME` and `KURA_CATALOG` remain environmental seams.
+`HOME` is the catalog and native-view seam used by tests.
 No test imports `conftest`, and `tests/` has no `__init__.py`, avoiding Python module-name collisions across suites.
 
 Runtime imports remain standard-library only.

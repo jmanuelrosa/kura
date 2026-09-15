@@ -38,7 +38,7 @@ def machine(required=True, require_catalog=True):
             "Kura machine configuration does not exist.\n  Run `kura init` in a project.",
         )
     try:
-        catalog_root = config.effective_catalog(saved, home, require=require_catalog)
+        catalog_root = config.effective_catalog(home, require=require_catalog)
     except config.Malformed as exc:
         raise Refusal(errors.DRIFT, str(exc)) from exc
     return saved, catalog_root

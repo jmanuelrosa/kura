@@ -400,11 +400,6 @@ def build_parser():
         help="select a project harness (repeatable)",
     )
     init.add_argument(
-        "--catalog",
-        metavar="PATH",
-        help="saved absolute catalog path for first machine setup",
-    )
-    init.add_argument(
         "--global-harness",
         dest="global_harnesses",
         action="append",
@@ -417,7 +412,6 @@ def build_parser():
     init.add_argument("--verbose", action="store_true", help="show every conversion and native link")
 
     config_command = _command(sub, "config")
-    config_command.add_argument("--catalog", metavar="PATH", help="replace the saved catalog path")
     config_command.add_argument(
         "--harness",
         dest="harnesses",
@@ -425,14 +419,6 @@ def build_parser():
         default=None,
         choices=("claude", "pi"),
         help="replace global harnesses with this repeatable selection",
-    )
-    config_command.add_argument(
-        "--root",
-        dest="roots",
-        action="append",
-        default=[],
-        metavar="PATH",
-        help="scan an initialized-project tree during a catalog move (repeatable)",
     )
     config_command.add_argument("--yes", action="store_true", help="apply the complete safe plan")
     config_command.add_argument("--dry-run", action="store_true", help="show the plan without writing")

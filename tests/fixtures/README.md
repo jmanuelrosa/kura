@@ -2,7 +2,7 @@
 
 `catalog/` is a committed test catalog.
 The multi-harness implementation discovers skills from `skills/<name>/SKILL.md` and merges optional `skill-registry.json` metadata.
-`tests/conftest.py` exports it as `KURA_CATALOG` for legacy read-only tests, while multi-harness lifecycle tests create isolated catalogs under `tmp_path`.
+`tests/conftest.py` places it at `~/.config/kura/catalog` under an isolated temporary home, while lifecycle tests that mutate catalog data create their own fixed-path catalogs.
 
 The retained `agents/`, `plugins/`, and `agent-registry.json` fixtures describe the legacy state that migration preserves without managing.
 They are no longer catalog inputs for the skills-only phase.

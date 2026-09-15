@@ -25,8 +25,7 @@ It puts its parent's parent on `sys.path`, so moving either without the other br
 ```sh
 make test                      # the whole suite
 uv run --offline --with pytest --with pyyaml pytest -q tests/test_add.py
-./bin/kura list --type skill   # against your own catalog
-KURA_CATALOG=tests/fixtures/catalog ./bin/kura list --type skill
+./bin/kura list --type skill   # against ~/.config/kura/catalog
 make checksum                  # build, then print the asset's digest
 ```
 
@@ -39,7 +38,7 @@ Breaking one of these is a defect even when the suite still passes.
 
 - **Stdlib-only at runtime, no exemption.** `kura/ui.py` and `kura/colors.py` exist so there is no third-party import to reach for. PyYAML is a test dependency and the oracle for the frontmatter scanner, never its implementation.
 - **The logic stays in the package.** The shim is wiring. An extensionless executable cannot be imported, so anything that grows there is code the fast tests can only reach through a subprocess.
-- **The catalog is injected, never discovered.** `paths.catalog_root` reads `KURA_CATALOG`, else `~/.local/share/kura/catalog`, and refuses if neither is a directory. No upward search, no marker file, no third source.
+- **The catalog is fixed, never discovered or configured.** `paths.catalog_root` reads `~/.config/kura/catalog` and refuses if it is not a directory. It does not consult `XDG_CONFIG_HOME`, machine configuration, environment overrides, an upward search, or a marker file.
 - **A refusal beats a plausible empty answer.** An unresolvable catalog exits rather than reading empty registries, because an empty derived set is indistinguishable from a catalog that lost its tags.
 - **`sync` is the only command that deletes what nobody named.** Its three narrowings are what make that safe: symlinks only, links resolving into the catalog's own stores only, and only when the derived set is non-empty. Weakening any of them turns a retagged registry into a silently emptied `~/.claude`.
 - **`remove` never leaves the project it starts in.** Cross-scope cascade would need a machine-wide index that goes stale the moment a checkout moves.
@@ -51,7 +50,7 @@ Breaking one of these is a defect even when the suite still passes.
 ## Tests
 
 - Three altitudes, in the order you should prefer them: pure functions over literal dicts, `tmp_path` for real symlinks, and a handful of subprocess runs through the shim.
-- `HOME` and `KURA_CATALOG` are the only environmental seams. An autouse fixture points the second at `tests/fixtures/catalog`, so no test reads whatever catalog the machine holds.
+- `HOME` is the catalog and native-view seam. An autouse fixture places `tests/fixtures/catalog` at the fixed catalog path under a temporary home, so no test reads machine state.
 - **Nothing imports `conftest`, and `tests/` has no `__init__.py`.** Both guard the same silent failure: a non-package `conftest.py` is named literally `conftest`, so `from conftest import X` binds to whichever suite loaded last. Shared helpers live in `tests/kit_helpers.py`, a name no other directory can claim; fixtures stay in `conftest.py`.
 - Adding a case to the fixture catalog means recording what it holds in `tests/fixtures/README.md`. A module's `_fixtures_still_valid` guard is what fails when someone invalidates a choice, and it should stay that way.
 - Adding a command means adding it to `COMMANDS`, `MODULE`, `FAMILIES` and `SCOPE` in `cli.py`; `test_help.py` fails if it reaches the CLI without reaching the grouped help listing.

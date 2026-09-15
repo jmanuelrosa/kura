@@ -6,9 +6,8 @@ Three altitudes, in order of how many tests should live at each:
   filesystem   `home` + `project` fixtures, real symlinks under tmp_path.
   subprocess   the `kit` fixture, running the shim end to end. A handful only.
 
-HOME and KURA_CATALOG are the tool's only environmental inputs, so pointing the
-first at tmp_path and the second at the fixture catalog isolates a run completely from
-the real machine.
+HOME is the tool's filesystem seam, so every test points it at tmp_path and places
+the fixture catalog at ~/.config/kura/catalog.
 
 **Fixtures only.** Paths and helpers come from `kit_helpers`. Nothing here is imported by a test module: `conftest` is not a unique
 name once a second suite directory exists, and a test doing `from conftest import X`
@@ -28,25 +27,22 @@ ensure_importable()
 
 
 @pytest.fixture(autouse=True)
-def _catalog_env(monkeypatch):
-    """Every test reads the fixture catalog unless it points the seam elsewhere.
-
-    Autouse, so it runs before the fixtures that override it (`seat_repo` builds a
-    catalog of its own). Without it a test that never asks for `home` inherits the
-    machine's default catalog path, and the tool refuses rather than reading anything
-    the suite controls.
-    """
-    monkeypatch.setenv("KURA_CATALOG", str(CATALOG))
-
-
-@pytest.fixture
-def home(tmp_path, monkeypatch):
-    """A throwaway HOME with ~/.claude present, exported so the tool sees it."""
-    h = tmp_path / "home"
-    (h / ".claude").mkdir(parents=True)
+def _catalog_home(tmp_path, monkeypatch):
+    """Give every test an isolated HOME containing the fixture catalog."""
+    h = tmp_path / "default-home"
+    catalog = h / ".config" / "kura" / "catalog"
+    catalog.parent.mkdir(parents=True)
+    catalog.symlink_to(CATALOG, target_is_directory=True)
     monkeypatch.setenv("HOME", str(h))
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     return h
+
+
+@pytest.fixture
+def home(_catalog_home):
+    """A throwaway HOME with ~/.claude present, exported so the tool sees it."""
+    (_catalog_home / ".claude").mkdir(parents=True)
+    return _catalog_home
 
 
 @pytest.fixture
@@ -72,10 +68,14 @@ def kit(tmp_path):
     """
     h = tmp_path / "kit-home"
     (h / ".claude").mkdir(parents=True)
+    catalog = h / ".config" / "kura" / "catalog"
+    catalog.parent.mkdir(parents=True)
+    catalog.symlink_to(CATALOG, target_is_directory=True)
 
     def run(*argv, cwd=None, extra_env=None):
-        env = {**os.environ, "HOME": str(h), "KURA_CATALOG": str(CATALOG)}
+        env = {**os.environ, "HOME": str(h)}
         env.pop("XDG_CONFIG_HOME", None)
+        env.pop("KURA_CATALOG", None)
         if extra_env:
             env.update(extra_env)
             if extra_env.get("FORCE_COLOR"):
