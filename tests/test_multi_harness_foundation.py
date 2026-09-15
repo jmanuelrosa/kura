@@ -72,14 +72,15 @@ def test_metadata_only_source_is_checked_for_catalog_containment(tmp_path):
     assert "resolves outside" in artifact.catalog_error
 
 
-def test_relative_catalog_override_is_rejected_even_when_it_exists(tmp_path, monkeypatch):
-    relative = tmp_path / "catalog"
-    relative.mkdir()
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv(config.ENV_CATALOG, relative.name)
+def test_catalog_path_is_fixed_under_home(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    catalog = config.catalog_path(home)
+    catalog.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setenv("KURA_CATALOG", str(tmp_path / "override"))
 
-    with pytest.raises(config.Malformed, match="absolute path"):
-        config.effective_catalog()
+    assert config.effective_catalog() == home / ".config" / "kura" / "catalog"
 
 
 def test_missing_metadata_sources_do_not_hide_deeper_dependency_drift(tmp_path):

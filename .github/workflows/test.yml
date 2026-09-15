@@ -35,11 +35,11 @@ jobs:
           shasum -a 256 dist/kura > second
           diff first second
 
-      - name: Run the asset with no checkout and no catalog
+      - name: Run the asset against the fixed catalog
         run: |
-          mkdir -p /tmp/isolated/home/.claude
+          mkdir -p /tmp/isolated/home/.config/kura
+          ln -s "$GITHUB_WORKSPACE/tests/fixtures/catalog" /tmp/isolated/home/.config/kura/catalog
           cp dist/kura /tmp/isolated/kura
           cd /tmp/isolated
           env -i PATH=/usr/bin:/bin HOME=/tmp/isolated/home \
-            KURA_CATALOG="$GITHUB_WORKSPACE/tests/fixtures/catalog" \
             ./kura list --type skill > /dev/null

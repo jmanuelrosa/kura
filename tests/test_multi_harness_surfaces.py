@@ -46,13 +46,12 @@ def workspace(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("NO_COLOR", "1")
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
-    monkeypatch.delenv("KURA_CATALOG", raising=False)
     monkeypatch.chdir(project)
     return home, project
 
 
-def configure(home, catalog, harness_ids=("claude", "pi")):
-    config.write(config.Config(catalog, harness_ids), home)
+def configure(home, harness_ids=("claude", "pi")):
+    config.write(config.Config(harness_ids), home)
 
 
 @pytest.mark.parametrize(
@@ -64,11 +63,11 @@ def configure(home, catalog, harness_ids=("claude", "pi")):
 )
 def test_project_add_checks_the_exact_manifest_before_requests(workspace, tmp_path, capsys, arguments):
     home, project = workspace
-    catalog = catalog_at(
-        tmp_path / "catalog",
+    catalog_at(
+        config.catalog_path(home),
         [{"name": "known", "groups": ["known"]}],
     )
-    configure(home, catalog)
+    configure(home)
     state.write(project.parent, state.Manifest(("claude",), ()))
 
     assert cli.main(arguments) == errors.NO_PROJECT
@@ -82,8 +81,8 @@ def test_project_add_distinguishes_missing_declared_intent_from_a_new_request(
     workspace, tmp_path, capsys
 ):
     home, project = workspace
-    catalog = catalog_at(tmp_path / "catalog", [{"name": "vanished"}])
-    configure(home, catalog)
+    catalog = catalog_at(config.catalog_path(home), [{"name": "vanished"}])
+    configure(home)
     state.write(project, state.Manifest(("claude", "pi"), ("vanished",)))
     source = catalog / "skills" / "vanished"
     (source / "SKILL.md").unlink()
@@ -105,13 +104,13 @@ def test_project_add_distinguishes_missing_declared_intent_from_a_new_request(
 def test_adopt_does_not_promote_an_existing_dependency_to_direct(workspace, tmp_path, capsys):
     home, project = workspace
     catalog = catalog_at(
-        tmp_path / "catalog",
+        config.catalog_path(home),
         [
             {"name": "root", "dependencies": ["helper"]},
             {"name": "helper"},
         ],
     )
-    configure(home, catalog)
+    configure(home)
     state.write(project, state.Manifest(("claude", "pi"), ("root",)))
     claude = harnesses.project_skill_root(project, "claude")
     claude.mkdir(parents=True)
@@ -129,7 +128,7 @@ def test_scout_counts_invalid_direct_intent_without_recommending_catalog_errors(
 ):
     home, project = workspace
     catalog = catalog_at(
-        tmp_path / "catalog",
+        config.catalog_path(home),
         [
             {"name": "declared-broken", "groups": ["review"]},
             {"name": "candidate-broken", "groups": ["review"]},
@@ -139,7 +138,7 @@ def test_scout_counts_invalid_direct_intent_without_recommending_catalog_errors(
             "candidate-broken": "wrong-candidate-name",
         },
     )
-    configure(home, catalog)
+    configure(home)
     state.write(project, state.Manifest(("claude",), ("declared-broken",)))
 
     assert cli.main(["scout", "--focus", "review"]) == errors.OK
@@ -151,10 +150,10 @@ def test_scout_counts_invalid_direct_intent_without_recommending_catalog_errors(
     assert captured.err == ""
 
 
-def test_doctor_checks_project_views_against_the_fallback_catalog(workspace, capsys):
+def test_doctor_checks_project_views_against_the_fixed_catalog(workspace, capsys):
     home, project = workspace
     catalog = catalog_at(
-        home / ".local" / "share" / "kura" / "catalog",
+        config.catalog_path(home),
         [{"name": "review"}],
     )
     state.write(project, state.Manifest(("claude",), ("review",)))
@@ -172,7 +171,7 @@ def test_doctor_rejects_non_regular_root_manifests(
     workspace, capsys, manifest_kind
 ):
     home, project = workspace
-    catalog_at(home / ".local" / "share" / "kura" / "catalog", [])
+    catalog_at(config.catalog_path(home), [])
     manifest = state.path_for(project)
     if manifest_kind == "symlink":
         target = project.parent / "other.json"
@@ -194,13 +193,13 @@ def test_listing_keeps_physical_installation_and_foreign_targets_in_json(
 ):
     home, project = workspace
     catalog = catalog_at(
-        tmp_path / "catalog",
+        config.catalog_path(home),
         [
             {"name": "parent", "dependencies": ["child"]},
             {"name": "child"},
         ],
     )
-    configure(home, catalog)
+    configure(home)
     state.write(project, state.Manifest(("claude", "pi"), ("parent",)))
     claude = harnesses.project_skill_root(project, "claude")
     pi = harnesses.project_skill_root(project, "pi")
@@ -237,11 +236,11 @@ def test_listing_retains_missing_global_policy_and_harness_views(
 ):
     home, project = workspace
     catalog = catalog_at(
-        tmp_path / "catalog",
+        config.catalog_path(home),
         [{"name": "missing-global", "groups": ["global"]}],
         present=(),
     )
-    configure(home, catalog)
+    configure(home)
     state.write(project, state.Manifest(("claude",), ()))
 
     assert cli.main(["list", "--type", "skill", "--json"]) == errors.OK

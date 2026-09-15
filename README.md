@@ -51,15 +51,12 @@ Kura stores machine configuration at `${XDG_CONFIG_HOME:-~/.config}/kura/config.
 ```json
 {
   "schemaVersion": 1,
-  "catalog": "/absolute/path/to/catalog",
   "globalHarnesses": ["claude", "pi"]
 }
 ```
 
 `globalHarnesses` must be sorted, unique, non-empty, and contain only `claude` or `pi`.
-`KURA_CATALOG` overrides the saved catalog at runtime and is never persisted.
-A saved catalog cannot be changed while that override is active.
-If no machine configuration exists, `~/.local/share/kura/catalog` remains the read-only fallback for catalog-aware reports.
+The catalog path is not machine configuration and cannot be changed.
 
 ## Project manifest
 
@@ -81,6 +78,10 @@ A malformed or newer manifest is never treated as an empty declaration.
 
 ## Catalog
 
+Kura always reads the catalog at `~/.config/kura/catalog`.
+There is no flag, environment variable, fallback, or saved setting that changes this path.
+An older machine configuration's `catalog` field is ignored and removed when Kura rewrites the file.
+Links to another catalog location are foreign and must be removed manually before Kura can recreate them from the fixed catalog.
 The minimum catalog is a directory containing `skills/<name>/SKILL.md`.
 `skill-registry.json` is optional metadata.
 A registry-free skill is project-scoped by default and has no groups, dependencies, durable global policy, or upstream source.
@@ -105,7 +106,6 @@ Initialize a project and the machine configuration noninteractively:
 kura init \
   --harness claude \
   --harness pi \
-  --catalog /absolute/path/to/catalog \
   --global-harness claude \
   --global-harness pi \
   --yes
@@ -127,13 +127,14 @@ Artifact commands use `--type skill` because skills are the only managed artifac
 ### `init`
 
 ```text
-kura init [--harness {claude,pi}] [--catalog PATH] [--global-harness {claude,pi}] [--yes] [--dry-run] [--verbose]
+kura init [--harness {claude,pi}] [--global-harness {claude,pi}] [--yes] [--dry-run] [--verbose]
 ```
 
 `init` is the first project mutation and refuses in `$HOME`.
 Repeated `--harness` values select the complete project harness set.
-On first machine setup, `--catalog` and repeated `--global-harness` values supply machine configuration.
-After machine configuration exists, those machine flags refuse and direct the user to `config`.
+On first machine setup, repeated `--global-harness` values supply machine configuration.
+After machine configuration exists, `--global-harness` refuses and directs the user to `config`.
+If the fixed catalog does not exist, `init` can create an empty `~/.config/kura/catalog/skills` after confirmation.
 `--yes` accepts the complete safe plan.
 `--dry-run` writes nothing and does not require `--yes`.
 `--verbose` includes every migration and native-view decision.
@@ -152,18 +153,12 @@ The old `.agents/skills -> ../.claude/skills` topology converts only when every 
 ### `config`
 
 ```text
-kura config [--catalog PATH] [--harness {claude,pi}] [--root PATH] [--yes] [--dry-run] [--verbose]
+kura config [--harness {claude,pi}] [--yes] [--dry-run] [--verbose]
 ```
 
-Bare `config` prints saved and effective machine configuration.
-Repeated `--harness` values replace the complete global harness set.
-`--catalog` changes the saved catalog and converges global links, the initialized cwd project, and projects beneath repeatable `--root` paths.
-`--root` does not cause an implicit recursive cwd scan.
+Bare `config` prints the machine configuration and fixed catalog path.
+Repeated `--harness` values replace the complete global harness set and immediately converge global views.
 `--yes`, `--dry-run`, and `--verbose` have the same planning meanings as on `init`.
-
-A catalog move remembers the old catalog only for that transaction.
-Projects outside cwd and the explicit roots retain old links, which become foreign afterward.
-Remove those links manually before `restore` can recreate them.
 
 ### `list`
 
@@ -260,7 +255,7 @@ kura sync [--type skill] [--dry-run]
 ```
 
 `sync` projects the recursive registry-global closure into every globally enabled harness.
-It prunes only symlinks resolving under the effective catalog and never touches real paths or foreign links.
+It prunes only symlinks resolving under the fixed catalog and never touches real paths or foreign links.
 If desired global state and managed state are both empty, the result succeeds.
 If desired global state is empty while managed global links exist, it returns `DRIFT` and deletes nothing.
 The closing report retains the exact `, 0 changes` marker used by provisioning automation.
@@ -275,9 +270,8 @@ kura outdated [NAME...] --type skill
 These registry-wide commands act only on skills carrying upstream metadata.
 Registry-free skills are omitted unless explicitly named for an explanatory report.
 They do not require project initialization.
-`update` requires valid saved machine configuration because it mutates the effective catalog.
-`KURA_CATALOG` still overrides the saved catalog for that run.
-Read-only `outdated` may instead use the default fallback catalog or an override without saved configuration.
+`update` requires valid saved machine configuration because it mutates the fixed catalog.
+Read-only `outdated` may inspect the fixed catalog without saved machine configuration.
 
 ### `doctor`
 
@@ -308,8 +302,7 @@ A multi-harness mutation preflights every store and restores exact original byte
 ## Safety and transactions
 
 A real path or foreign symlink is never replaced or deleted.
-A managed link must occupy the expected native path and resolve under the effective catalog's `skills` directory.
-Catalog moves temporarily recognize the old catalog for the named transaction only.
+A managed link must occupy the expected native path and resolve under the fixed catalog's `skills` directory.
 
 Every multi-path mutation follows one process:
 

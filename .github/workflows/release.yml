@@ -48,10 +48,10 @@ jobs:
       - name: Smoke-test release asset
         run: |
           smoke_dir="$RUNNER_TEMP/kura-smoke"
-          mkdir -p "$smoke_dir/home/.claude"
+          mkdir -p "$smoke_dir/home/.config/kura"
+          ln -s "$GITHUB_WORKSPACE/tests/fixtures/catalog" "$smoke_dir/home/.config/kura/catalog"
           cp dist/kura "$smoke_dir/kura"
           env -i PATH=/usr/bin:/bin HOME="$smoke_dir/home" \
-            KURA_CATALOG="$GITHUB_WORKSPACE/tests/fixtures/catalog" \
             "$smoke_dir/kura" list --type skill > /dev/null
           (cd dist && sha256sum --check kura.sha256)
 

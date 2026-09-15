@@ -22,7 +22,7 @@ def skill(root, name):
 
 
 def catalog_at(path, dependencies=False):
-    path.mkdir()
+    path.mkdir(parents=True)
     (path / "skills").mkdir()
     if dependencies:
         skill(path, "review")
@@ -41,7 +41,6 @@ def catalog_at(path, dependencies=False):
 
 
 def arguments(
-    catalog=None,
     harnesses=("claude",),
     global_harnesses=("claude",),
     yes=True,
@@ -50,7 +49,6 @@ def arguments(
 ):
     return SimpleNamespace(
         harnesses=list(harnesses),
-        catalog=str(catalog) if catalog is not None else None,
         global_harnesses=list(global_harnesses),
         yes=yes,
         dry_run=dry_run,
@@ -64,10 +62,9 @@ def setup(tmp_path, monkeypatch):
     project = tmp_path / "project"
     home.mkdir()
     project.mkdir()
-    catalog = catalog_at(tmp_path / "catalog")
+    catalog = catalog_at(config.catalog_path(home))
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
-    monkeypatch.delenv(config.ENV_CATALOG, raising=False)
     monkeypatch.chdir(project)
     return home, project, catalog
 
@@ -101,7 +98,7 @@ def test_instruction_file_topologies_preserve_exact_bytes(
     if claude_before is not None:
         claude.write_bytes(claude_before)
 
-    assert init_command.run(arguments(catalog)) == errors.OK
+    assert init_command.run(arguments()) == errors.OK
 
     if agents_after is None:
         assert not agents.exists()
@@ -122,7 +119,7 @@ def test_instruction_symlinks_that_would_be_written_refuse(setup, tmp_path, targ
         target.write_bytes(b"foreign\n")
     (project / "CLAUDE.md").symlink_to(target)
 
-    assert init_command.run(arguments(catalog)) == errors.DRIFT
+    assert init_command.run(arguments()) == errors.DRIFT
 
     captured = capsys.readouterr()
     assert "Cannot write instruction file" in captured.err
@@ -138,7 +135,7 @@ def test_non_regular_instruction_destination_refuses(setup, capsys):
     (project / "AGENTS.md").write_bytes(b"keep agents\n")
     (project / "CLAUDE.md").mkdir()
 
-    assert init_command.run(arguments(catalog)) == errors.DRIFT
+    assert init_command.run(arguments()) == errors.DRIFT
 
     captured = capsys.readouterr()
     assert "is not a regular file" in captured.err
@@ -147,39 +144,28 @@ def test_non_regular_instruction_destination_refuses(setup, capsys):
     assert not state.path_for(project).exists()
 
 
-def test_first_machine_setup_refuses_an_active_catalog_override(setup, monkeypatch, capsys):
+def test_existing_catalog_without_skills_refuses(setup, capsys):
     home, project, catalog = setup
-    monkeypatch.setenv(config.ENV_CATALOG, str(catalog))
+    (catalog / "skills").rmdir()
 
-    assert init_command.run(arguments(catalog)) == errors.USAGE
-
-    assert "Unset KURA_CATALOG" in capsys.readouterr().err
-    assert not config.path_for(home).exists()
-    assert not state.path_for(project).exists()
-
-
-def test_existing_catalog_without_skills_refuses(setup, tmp_path, capsys):
-    home, project, _ = setup
-    invalid = tmp_path / "invalid-catalog"
-    invalid.mkdir()
-
-    assert init_command.run(arguments(invalid)) == errors.DRIFT
+    assert init_command.run(arguments()) == errors.DRIFT
 
     assert "has no skills/ directory" in capsys.readouterr().err
     assert not config.path_for(home).exists()
     assert not state.path_for(project).exists()
 
 
-def test_missing_saved_catalog_is_actionable_drift(setup, tmp_path, capsys):
-    home, project, _ = setup
-    missing = tmp_path / "missing-catalog"
-    config.write(config.Config(missing, ("claude",)), home)
+def test_missing_fixed_catalog_is_actionable_drift(setup, capsys):
+    home, project, catalog = setup
+    (catalog / "skills").rmdir()
+    catalog.rmdir()
+    config.write(config.Config(("claude",)), home)
 
-    assert init_command.run(arguments(catalog=None, global_harnesses=())) == errors.DRIFT
+    assert init_command.run(arguments(global_harnesses=())) == errors.DRIFT
 
     captured = capsys.readouterr()
-    assert "Cannot resolve the effective catalog" in captured.err
-    assert "kura config --catalog /absolute/path" in captured.err
+    assert "Cannot resolve the catalog" in captured.err
+    assert str(config.catalog_path(home)) in captured.err
     assert not state.path_for(project).exists()
 
 
@@ -187,7 +173,7 @@ def test_conflicting_root_and_legacy_manifests_refuse_with_semantic_difference(s
     home, project, catalog = setup
     skill(catalog, "review")
     skill(catalog, "helper")
-    config.write(config.Config(catalog, ("claude",)), home)
+    config.write(config.Config(("claude",)), home)
     state.write(project, state.Manifest(("claude",), ("review",)))
     root_before = state.path_for(project).read_bytes()
     legacy = state.legacy_path_for(project)
@@ -195,7 +181,7 @@ def test_conflicting_root_and_legacy_manifests_refuse_with_semantic_difference(s
     legacy.write_text(json.dumps({"installed": {"skills": {"helper": "direct"}}}))
     legacy_before = legacy.read_bytes()
 
-    assert init_command.run(arguments(catalog=None, global_harnesses=())) == errors.DRIFT
+    assert init_command.run(arguments(global_harnesses=())) == errors.DRIFT
 
     captured = capsys.readouterr()
     assert "Cannot migrate project state" in captured.err
@@ -218,7 +204,7 @@ def test_unsafe_legacy_pi_bridge_entries_refuse(setup, tmp_path, entry_kind, exp
     home, project, catalog = setup
     skill(catalog, "review")
     skill(catalog, "rogue")
-    config.write(config.Config(catalog, ("claude", "pi")), home)
+    config.write(config.Config(("claude", "pi")), home)
     claude_root = harnesses.project_skill_root(project, "claude")
     claude_root.mkdir(parents=True)
     (claude_root / "review").symlink_to(catalog / "skills" / "review")
@@ -239,7 +225,7 @@ def test_unsafe_legacy_pi_bridge_entries_refuse(setup, tmp_path, entry_kind, exp
     legacy_before = legacy.read_bytes()
 
     assert init_command.run(
-        arguments(catalog=None, harnesses=("claude", "pi"), global_harnesses=())
+        arguments(harnesses=("claude", "pi"), global_harnesses=())
     ) == errors.DRIFT
 
     captured = capsys.readouterr()
@@ -273,16 +259,15 @@ def test_dry_run_renders_the_complete_summary_and_writes_nothing(tmp_path, monke
     project = tmp_path / "project"
     home.mkdir()
     project.mkdir()
-    catalog = catalog_at(tmp_path / "catalog", dependencies=True)
+    catalog = catalog_at(config.catalog_path(home), dependencies=True)
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
-    monkeypatch.delenv(config.ENV_CATALOG, raising=False)
     monkeypatch.chdir(project)
     legacy = write_legacy_plan(project)
     legacy_before = legacy.read_bytes()
 
     assert init_command.run(
-        arguments(catalog, harnesses=("claude", "pi"), dry_run=True)
+        arguments(harnesses=("claude", "pi"), dry_run=True)
     ) == errors.OK
 
     output = capsys.readouterr().out
@@ -309,16 +294,14 @@ def test_verbose_plan_enumerates_every_conversion_and_destination(tmp_path, monk
     project = tmp_path / "project"
     home.mkdir()
     project.mkdir()
-    catalog = catalog_at(tmp_path / "catalog", dependencies=True)
+    catalog = catalog_at(config.catalog_path(home), dependencies=True)
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
-    monkeypatch.delenv(config.ENV_CATALOG, raising=False)
     monkeypatch.chdir(project)
     legacy = write_legacy_plan(project)
 
     assert init_command.run(
         arguments(
-            catalog,
             harnesses=("claude", "pi"),
             dry_run=True,
             verbose=True,
@@ -349,21 +332,20 @@ def test_interactive_affirmative_creates_an_explicit_missing_catalog(
 ):
     home = tmp_path / "home"
     project = tmp_path / "project"
-    catalog = tmp_path / "new-catalog"
+    catalog = config.catalog_path(home)
     home.mkdir()
     project.mkdir()
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
-    monkeypatch.delenv(config.ENV_CATALOG, raising=False)
     monkeypatch.chdir(project)
     monkeypatch.setattr(init_command.sys, "stdin", TTY())
     answers = iter(("yes", "yes"))
     monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
 
-    assert init_command.run(arguments(catalog, yes=False)) == errors.OK
+    assert init_command.run(arguments(yes=False)) == errors.OK
 
     assert (catalog / "skills").is_dir()
-    assert config.read(home).catalog == catalog
+    assert config.read(home).global_harnesses == ("claude",)
     assert state.read_strict(project).harnesses == ("claude",)
     assert (project / "AGENTS.md").read_bytes() == b"# Project instructions\n"
     assert (project / "CLAUDE.md").read_bytes() == b"@AGENTS.md\n"
@@ -374,7 +356,7 @@ def test_interactive_negative_cancels_without_writes(setup, monkeypatch, capsys)
     monkeypatch.setattr(init_command.sys, "stdin", TTY())
     monkeypatch.setattr("builtins.input", lambda prompt: "no")
 
-    assert init_command.run(arguments(catalog, yes=False)) == errors.OK
+    assert init_command.run(arguments(yes=False)) == errors.OK
 
     assert "Initialization cancelled; nothing was changed" in capsys.readouterr().out
     assert not config.path_for(home).exists()
@@ -392,7 +374,7 @@ def test_interactive_eof_refuses_without_writes(setup, monkeypatch, capsys):
 
     monkeypatch.setattr("builtins.input", end_input)
 
-    assert init_command.run(arguments(catalog, yes=False)) == errors.USAGE
+    assert init_command.run(arguments(yes=False)) == errors.USAGE
 
     assert "Input ended before confirmation; nothing was changed" in capsys.readouterr().err
     assert not config.path_for(home).exists()

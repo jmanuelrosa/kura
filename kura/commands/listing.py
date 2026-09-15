@@ -213,7 +213,7 @@ def run(args):
         home = paths.home()
         try:
             machine = config.read(home)
-            catalog_root = config.effective_catalog(machine, home)
+            catalog_root = config.effective_catalog(home)
         except config.Malformed as exc:
             raise common.Refusal(errors.DRIFT, f"Invalid machine configuration: {exc}") from exc
         catalog = common.loaded_catalog(catalog_root)

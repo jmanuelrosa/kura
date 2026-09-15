@@ -16,7 +16,7 @@ def add_skill(catalog, name):
 
 
 def make_catalog(path, global_skill=False):
-    path.mkdir()
+    path.mkdir(parents=True)
     (path / "skills").mkdir()
     add_skill(path, "review")
     groups = ["global"] if global_skill else []
@@ -32,12 +32,11 @@ def environment(tmp_path, monkeypatch):
     project = tmp_path / "project"
     home.mkdir()
     project.mkdir()
-    catalog = make_catalog(tmp_path / "catalog")
+    catalog = make_catalog(config.catalog_path(home))
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
-    monkeypatch.delenv(config.ENV_CATALOG, raising=False)
     monkeypatch.chdir(project)
-    config.write(config.Config(catalog, ("claude", "pi")), home)
+    config.write(config.Config(("claude", "pi")), home)
     return home, project, catalog
 
 
@@ -235,10 +234,9 @@ def test_first_bootstrap_supports_a_symlinked_config_directory(
     project.mkdir()
     config_target.mkdir()
     (home / ".config").symlink_to(config_target)
-    catalog = make_catalog(tmp_path / "bootstrap-catalog")
+    make_catalog(config.catalog_path(home))
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
-    monkeypatch.delenv(config.ENV_CATALOG, raising=False)
     monkeypatch.chdir(project)
 
     assert cli.main(
@@ -246,8 +244,6 @@ def test_first_bootstrap_supports_a_symlinked_config_directory(
             "init",
             "--harness",
             "claude",
-            "--catalog",
-            str(catalog),
             "--global-harness",
             "claude",
             "--yes",
@@ -257,23 +253,11 @@ def test_first_bootstrap_supports_a_symlinked_config_directory(
     assert config.path_for(home).resolve().is_relative_to(config_target)
 
 
-def test_config_can_recover_from_malformed_old_catalog_metadata(
-    environment, tmp_path
-):
-    home, _, old_catalog = environment
-    (old_catalog / "skill-registry.json").write_text("{bad")
-    new_catalog = make_catalog(tmp_path / "replacement")
-
-    assert cli.main(["config", "--catalog", str(new_catalog), "--yes"]) == errors.OK
-    assert config.read(home).catalog == new_catalog
-
-
 def test_state_actions_refuse_concurrent_configuration_and_manifest_changes(environment):
     home, project, catalog = environment
     original_config = config.read(home)
     config.write(
         config.Config(
-            catalog,
             ("claude", "pi"),
             extra={"concurrent": True},
         ),
