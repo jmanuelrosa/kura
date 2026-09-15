@@ -77,10 +77,12 @@ def test_the_shim_finds_the_package_with_the_implicit_path_entry_suppressed(tmp_
 
     home = tmp_path / "home"
     (home / ".claude").mkdir(parents=True)
+    catalog = home / ".config" / "kura" / "catalog"
+    catalog.parent.mkdir(parents=True)
+    catalog.symlink_to(CATALOG, target_is_directory=True)
     env = {
         **os.environ,
         "HOME": str(home),
-        "KURA_CATALOG": str(CATALOG),
         "PYTHONSAFEPATH": "1",
     }
     env.pop("XDG_CONFIG_HOME", None)

@@ -55,33 +55,13 @@ def _machine(args, home, interactive):
             errors.DRIFT,
             f"Invalid machine configuration: {exc}. Fix or remove {config.path_for(home)}, then rerun `kura init`.",
         ) from exc
-    machine_flags = args.catalog is not None or bool(args.global_harnesses)
     if saved is not None:
-        if machine_flags:
+        if args.global_harnesses:
             raise common.Refusal(
                 errors.USAGE,
                 "Machine configuration already exists. Use `kura config` for machine changes.",
             )
         return saved, False, False
-    if config.ENV_CATALOG in os.environ:
-        raise common.Refusal(
-            errors.USAGE,
-            f"Cannot create machine configuration while {config.ENV_CATALOG} is set. "
-            f"Unset {config.ENV_CATALOG} and rerun `kura init` so the saved and effective catalogs agree.",
-        )
-
-    catalog_explicit = args.catalog is not None
-    if args.catalog is None:
-        if not interactive:
-            raise common.Refusal(errors.USAGE, "First initialization requires --catalog PATH.")
-        default = home / config.DEFAULT_CATALOG
-        value = _input(f"Catalog [{default}]: ").strip()
-        catalog_explicit = bool(value)
-        catalog_path = Path(value).expanduser() if value else default
-    else:
-        catalog_path = Path(args.catalog).expanduser()
-    if not catalog_path.is_absolute():
-        raise common.Refusal(errors.USAGE, "--catalog must be an absolute path.")
 
     if args.global_harnesses:
         global_harnesses = _parse_ids(args.global_harnesses, "global harness")
@@ -92,25 +72,21 @@ def _machine(args, home, interactive):
     else:
         raise common.Refusal(errors.USAGE, "First initialization requires --global-harness.")
 
+    catalog_path = config.catalog_path(home)
     if catalog_path.is_symlink() or catalog_path.exists():
         if not catalog_path.is_dir():
             raise common.Refusal(
                 errors.DRIFT,
-                f"Selected catalog {catalog_path} is not a directory. Choose a catalog directory and rerun `kura init`.",
+                f"Catalog {catalog_path} is not a directory.",
             )
         if not (catalog_path / cat.STORE[cat.SKILL]).is_dir():
             raise common.Refusal(
                 errors.DRIFT,
-                f"Catalog {catalog_path} has no skills/ directory. Add skills/ or select a valid catalog.",
+                f"Catalog {catalog_path} has no skills/ directory. Add skills/ and rerun `kura init`.",
             )
         missing = False
     else:
         missing = True
-    if missing and not catalog_explicit:
-        raise common.Refusal(
-            errors.DRIFT,
-            f"Inferred catalog {catalog_path} does not exist. Select an existing catalog explicitly with --catalog.",
-        )
     if missing and not args.yes and not args.dry_run:
         if not interactive:
             raise common.Refusal(
@@ -120,7 +96,7 @@ def _machine(args, home, interactive):
         answer = _input(f"Create {catalog_path} with an empty skills/ directory? [y/N] ").strip().lower()
         if answer not in ("y", "yes"):
             raise common.Refusal(errors.USAGE, "Initialization cancelled; nothing was changed.")
-    return config.Config(catalog_path, global_harnesses), True, missing
+    return config.Config(global_harnesses), True, missing
 
 
 def _legacy_topology(project, catalog_root, catalog, manifest):
@@ -209,7 +185,6 @@ def _render_plan(
     args,
     project,
     home,
-    machine,
     effective_root,
     declaration,
     catalog,
@@ -282,7 +257,7 @@ def _render_plan(
     state_writes = sum(action.operation == "write" for action in final)
     print("\nState")
     if create_catalog:
-        print(f"  Catalog: create {ui.path(machine.catalog / 'skills')}")
+        print(f"  Catalog: create {ui.path(effective_root / 'skills')}")
     else:
         print(f"  Catalog: use {ui.path(effective_root)}")
     print(f"  Machine configuration: {'create' if create_machine else 'preserve'}")
@@ -337,7 +312,7 @@ def _render_plan(
 
     print("\nState details")
     if create_catalog:
-        print(f"  mkdir: {ui.path(machine.catalog / 'skills')}")
+        print(f"  mkdir: {ui.path(effective_root / 'skills')}")
     for action in final:
         if action.operation == "write":
             label = "machine configuration" if action.path == config.path_for(home) else "project manifest"
@@ -365,20 +340,11 @@ def run(args):
 
         machine, create_machine, create_catalog = _machine(args, home, interactive)
         try:
-            effective_root = config.effective_catalog(
-                machine,
-                home,
-                require=not create_catalog,
-            )
+            effective_root = config.effective_catalog(home, require=not create_catalog)
         except config.Malformed as exc:
-            remedy = (
-                f"Unset {config.ENV_CATALOG} and rerun `kura init`."
-                if config.ENV_CATALOG in os.environ
-                else "Restore it or run `kura config --catalog /absolute/path` with a valid catalog."
-            )
             raise common.Refusal(
                 errors.DRIFT,
-                f"Cannot resolve the effective catalog: {exc}. {remedy}",
+                f"Cannot resolve the catalog: {exc}.",
             ) from exc
         catalog = {} if create_catalog else common.loaded_catalog(effective_root)
 
@@ -416,7 +382,7 @@ def run(args):
         if not catalog and declaration.skills:
             raise common.Refusal(
                 errors.DRIFT,
-                "A missing catalog cannot migrate existing skill intent. Create or select the catalog first.",
+                "A missing catalog cannot migrate existing skill intent. Restore the fixed catalog first.",
             )
 
         old_topology, differences, old_topology_before = _legacy_topology(
@@ -434,7 +400,7 @@ def run(args):
 
         combined = views.Plan()
         if create_catalog:
-            combined.actions.append(Action("mkdir", machine.catalog / "skills"))
+            combined.actions.append(Action("mkdir", effective_root / "skills"))
         pending_global = set()
         if create_machine and not create_catalog:
             global_projection = views.global_plan(
@@ -445,7 +411,7 @@ def run(args):
             )
             common.refuse_plan(global_projection, "initialize global skill views")
             if global_projection.missing:
-                raise common.Refusal(errors.DRIFT, "Global skills are missing from the selected catalog.")
+                raise common.Refusal(errors.DRIFT, "Global skills are missing from the fixed catalog.")
             combined.extend(global_projection)
             pending_global = {
                 (harness_id, name)
@@ -495,7 +461,6 @@ def run(args):
             args,
             project,
             home,
-            machine,
             effective_root,
             declaration,
             catalog,
