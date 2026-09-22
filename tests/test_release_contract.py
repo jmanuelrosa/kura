@@ -31,6 +31,13 @@ def test_default_branch_workflows_watch_main(relative):
     assert "branches: [master]" not in workflow
 
 
+def test_release_workflow_leaves_a_published_tag_unchanged():
+    workflow = (TOOL / ".github/workflows/release.yml").read_text()
+    assert 'gh release view "$TAG"' in workflow
+    assert "leaving published assets unchanged" in workflow
+    assert "--clobber" not in workflow
+
+
 def test_releasing_smoke_test_and_wording_use_skills():
     releasing = (TOOL / "RELEASING.md").read_text()
     assert "list --type plugin" not in releasing
