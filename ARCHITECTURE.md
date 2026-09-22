@@ -42,7 +42,7 @@ Unknown versions and harness IDs refuse.
 
 The same module derives the catalog only from `$HOME` as `~/.config/kura/catalog`.
 It does not consult `XDG_CONFIG_HOME`, machine configuration, or environment overrides for that path.
-Read-oriented commands may use the fixed catalog without machine configuration, while mutations that require machine policy still refuse when configuration is absent.
+Read-oriented commands may use the fixed catalog without machine configuration, while mutations that require machine policy still refuse when configuration is absent, except `config`, whose own mutation is what creates it.
 
 [kura/paths.py](kura/paths.py) remains the `HOME` seam used by tests and delegates fixed catalog validation to the configuration module.
 
@@ -159,10 +159,10 @@ Reports count selected skills separately from physical links.
 
 ## Project lifecycle
 
-`init` is the first project mutation.
-It gathers harness selection, bootstraps missing machine configuration, prepares instruction files, migrates legacy state, preflights native views, and asks once before applying an interactive plan.
-A noninteractive first run supplies repeated project and global harness flags plus `--yes`.
-When the fixed catalog is absent, `init` may create its empty `skills/` directory after confirmation.
+`init` is the first project mutation and requires machine configuration to already exist.
+It gathers harness selection, prepares instruction files, migrates legacy state, preflights native views, and asks once before applying an interactive plan.
+A noninteractive run supplies repeated `--harness` flags plus `--yes`.
+`init` no longer bootstraps machine configuration itself; a missing one refuses and names `kura config`.
 
 The shared instruction surface is `AGENTS.md`.
 Claude Code receives a minimal `CLAUDE.md` containing `@AGENTS.md` when a bridge is needed.
@@ -202,6 +202,8 @@ The next `sync` restores registry policy.
 
 `config` mutations reconcile global views in the same transaction as the configuration write.
 A removed global harness is an explicit request, so its managed links can be removed without applying the ambiguous empty-policy pruning rule to harnesses that remain selected.
+
+`config` is also the one command that bootstraps machine configuration: a mutation against an absent configuration creates it instead of refusing, and may create the fixed catalog's empty `skills/` directory after confirmation the same way `init` used to on a first run.
 
 ## Listing and diagnostics
 

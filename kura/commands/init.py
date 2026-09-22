@@ -47,7 +47,7 @@ def _prompt_harnesses(project):
     return _parse_ids([value.strip() for value in values if value.strip()], "project harness")
 
 
-def _machine(args, home, interactive):
+def _machine(home):
     try:
         saved = config.read(home)
     except config.Malformed as exc:
@@ -55,48 +55,12 @@ def _machine(args, home, interactive):
             errors.DRIFT,
             f"Invalid machine configuration: {exc}. Fix or remove {config.path_for(home)}, then rerun `kura init`.",
         ) from exc
-    if saved is not None:
-        if args.global_harnesses:
-            raise common.Refusal(
-                errors.USAGE,
-                "Machine configuration already exists. Use `kura config` for machine changes.",
-            )
-        return saved, False, False
-
-    if args.global_harnesses:
-        global_harnesses = _parse_ids(args.global_harnesses, "global harness")
-    elif interactive:
-        response = _input("Globally enabled harnesses [claude,pi]: ").strip()
-        values = response.split(",") if response else list(harnesses.IDS)
-        global_harnesses = _parse_ids([value.strip() for value in values], "global harness")
-    else:
-        raise common.Refusal(errors.USAGE, "First initialization requires --global-harness.")
-
-    catalog_path = config.catalog_path(home)
-    if catalog_path.is_symlink() or catalog_path.exists():
-        if not catalog_path.is_dir():
-            raise common.Refusal(
-                errors.DRIFT,
-                f"Catalog {catalog_path} is not a directory.",
-            )
-        if not (catalog_path / cat.STORE[cat.SKILL]).is_dir():
-            raise common.Refusal(
-                errors.DRIFT,
-                f"Catalog {catalog_path} has no skills/ directory. Add skills/ and rerun `kura init`.",
-            )
-        missing = False
-    else:
-        missing = True
-    if missing and not args.yes and not args.dry_run:
-        if not interactive:
-            raise common.Refusal(
-                errors.USAGE,
-                f"Catalog {catalog_path} does not exist. Re-run with --yes to create it.",
-            )
-        answer = _input(f"Create {catalog_path} with an empty skills/ directory? [y/N] ").strip().lower()
-        if answer not in ("y", "yes"):
-            raise common.Refusal(errors.USAGE, "Initialization cancelled; nothing was changed.")
-    return config.Config(global_harnesses), True, missing
+    if saved is None:
+        raise common.Refusal(
+            errors.NO_PROJECT,
+            "Kura machine configuration does not exist. Run `kura config --harness ...` first.",
+        )
+    return saved
 
 
 def _legacy_topology(project, catalog_root, catalog, manifest):
@@ -184,7 +148,6 @@ def _migration_rows(legacy_rows):
 def _render_plan(
     args,
     project,
-    home,
     effective_root,
     declaration,
     catalog,
@@ -193,8 +156,6 @@ def _render_plan(
     instruction_topology,
     notes,
     legacy_rows,
-    create_machine,
-    create_catalog,
     root_manifest,
 ):
     verbose = bool(args.verbose)
@@ -256,11 +217,7 @@ def _render_plan(
 
     state_writes = sum(action.operation == "write" for action in final)
     print("\nState")
-    if create_catalog:
-        print(f"  Catalog: create {ui.path(effective_root / 'skills')}")
-    else:
-        print(f"  Catalog: use {ui.path(effective_root)}")
-    print(f"  Machine configuration: {'create' if create_machine else 'preserve'}")
+    print(f"  Catalog: use {ui.path(effective_root)}")
     print(f"  Project manifest: {'create' if root_manifest is None else 'update'}")
     print(f"  {_counted(state_writes, 'state file')} will be written")
 
@@ -311,12 +268,9 @@ def _render_plan(
         print(f"  missing: {owner}'{name}'{location}")
 
     print("\nState details")
-    if create_catalog:
-        print(f"  mkdir: {ui.path(effective_root / 'skills')}")
     for action in final:
         if action.operation == "write":
-            label = "machine configuration" if action.path == config.path_for(home) else "project manifest"
-            print(f"  write: {label} at {ui.path(action.path)}")
+            print(f"  write: project manifest at {ui.path(action.path)}")
         elif action.operation == "delete-file":
             print(f"  delete after success: legacy manifest at {ui.path(action.path)}")
 
@@ -338,15 +292,15 @@ def run(args):
         else:
             raise common.Refusal(errors.USAGE, "Noninteractive initialization requires --harness.")
 
-        machine, create_machine, create_catalog = _machine(args, home, interactive)
+        machine = _machine(home)
         try:
-            effective_root = config.effective_catalog(home, require=not create_catalog)
+            effective_root = config.effective_catalog(home)
         except config.Malformed as exc:
             raise common.Refusal(
                 errors.DRIFT,
                 f"Cannot resolve the catalog: {exc}.",
             ) from exc
-        catalog = {} if create_catalog else common.loaded_catalog(effective_root)
+        catalog = common.loaded_catalog(effective_root)
 
         root_path = state.path_for(project)
         root_before = snapshot(root_path)
@@ -399,26 +353,6 @@ def run(args):
             )
 
         combined = views.Plan()
-        if create_catalog:
-            combined.actions.append(Action("mkdir", effective_root / "skills"))
-        pending_global = set()
-        if create_machine and not create_catalog:
-            global_projection = views.global_plan(
-                catalog,
-                effective_root,
-                home,
-                machine.global_harnesses,
-            )
-            common.refuse_plan(global_projection, "initialize global skill views")
-            if global_projection.missing:
-                raise common.Refusal(errors.DRIFT, "Global skills are missing from the fixed catalog.")
-            combined.extend(global_projection)
-            pending_global = {
-                (harness_id, name)
-                for harness_id in machine.global_harnesses
-                for name in global_projection.logical_skills
-            }
-
         old_manifest = root_manifest or state.Manifest(selected, ())
         projection = views.project_plan(
             catalog,
@@ -428,7 +362,6 @@ def run(args):
             old_manifest,
             declaration,
             machine.global_harnesses,
-            pending_global=pending_global,
             replace_roots=("pi",) if old_topology else (),
         )
         common.refuse_plan(projection, "initialize this project")
@@ -450,17 +383,13 @@ def run(args):
 
         instruction_actions, notes, instruction_topology = _instruction_actions(project)
         combined.actions.extend(instruction_actions)
-        final = []
-        if create_machine:
-            final.append(common.config_action(home, machine, None))
-        final.append(common.manifest_action(project, declaration, root_manifest))
+        final = [common.manifest_action(project, declaration, root_manifest)]
         if legacy_before.kind == "file":
             final.append(Action("delete-file", legacy_path, expected=legacy_before))
 
         _render_plan(
             args,
             project,
-            home,
             effective_root,
             declaration,
             catalog,
@@ -469,8 +398,6 @@ def run(args):
             instruction_topology,
             notes,
             legacy_rows,
-            create_machine,
-            create_catalog,
             root_manifest,
         )
         if args.dry_run:

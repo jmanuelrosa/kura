@@ -50,19 +50,13 @@ def setup(tmp_path, monkeypatch):
 
 
 def initialize(catalog):
+    bootstrap = cli.main(
+        ["config", "--harness", "claude", "--harness", "pi", "--yes"]
+    )
+    if bootstrap != errors.OK:
+        return bootstrap
     return cli.main(
-        [
-            "init",
-            "--harness",
-            "claude",
-            "--harness",
-            "pi",
-            "--global-harness",
-            "claude",
-            "--global-harness",
-            "pi",
-            "--yes",
-        ]
+        ["init", "--harness", "claude", "--harness", "pi", "--yes"]
     )
 
 
@@ -415,17 +409,15 @@ def test_scratch_global_add_and_remove_touch_every_enabled_harness(setup):
 def test_init_and_config_dry_runs_write_nothing(setup, tmp_path):
     home, project, catalog = setup
     assert cli.main(
-        [
-            "init",
-            "--harness",
-            "claude",
-            "--global-harness",
-            "claude",
-            "--dry-run",
-        ]
+        ["config", "--harness", "claude", "--dry-run"]
+    ) == errors.OK
+    assert not config.path_for(home).exists()
+
+    config.write(config.Config(("claude",)), home)
+    assert cli.main(
+        ["init", "--harness", "claude", "--dry-run"]
     ) == errors.OK
     assert not state.path_for(project).exists()
-    assert not config.path_for(home).exists()
 
 
 def test_init_migrates_the_old_manifest_and_pi_directory_bridge(setup):

@@ -40,7 +40,7 @@ The row becomes drift and names each view.
 2. Read existing root and legacy manifests.
 3. Detect harness evidence.
 4. Ask for project harnesses.
-5. Bootstrap machine config when absent.
+5. Require machine config; refuse and name `kura config` when absent.
 6. Inspect instruction files.
 7. Derive direct and dependency skills.
 8. Preflight native views.
@@ -67,25 +67,17 @@ If nothing is detected, both supported harnesses remain available but unselected
 The user must select at least one.
 There is no default-harness prompt.
 
-### First machine setup
+### Missing machine configuration
 
-When machine config is absent:
-
-```text
-Kura needs machine configuration before this project can be initialized.
-
-Catalog: ~/.config/kura/catalog
-Globally enabled harnesses:
-  [x] Claude Code
-  [x] Pi
-```
-
-A missing fixed catalog offers one choice:
+`init` never creates machine configuration.
+When it is absent:
 
 ```text
-The catalog directory does not exist.
-Create ~/.config/kura/catalog with an empty skills/ directory? [y/N]
+✗ Kura machine configuration does not exist.
+  Run `kura config` to create it.
 ```
+
+First machine setup happens through `kura config`; see its section below.
 
 ### New project plan
 
@@ -167,18 +159,12 @@ No files were changed.
 
 ### Noninteractive `init`
 
-Complete first-run bootstrap:
+Requires machine configuration to already exist:
 
 ```sh
-kura init \
-  --harness claude \
-  --harness pi \
-  --global-harness claude \
-  --global-harness pi \
-  --yes
+kura init --harness claude --harness pi --yes
 ```
 
-After machine config exists, `--global-harness` refuses and names `kura config`.
 Missing required choices in a non-TTY session are usage errors.
 `--dry-run` does not require `--yes` and writes nothing.
 
@@ -202,6 +188,23 @@ kura config --harness claude --harness pi --yes
 Repeated `--harness` values replace the complete global set.
 At least one is required.
 A successful mutation immediately converges global views.
+
+### First machine setup
+
+A mutation against an absent machine configuration bootstraps it instead of refusing, and can run from anywhere, including `$HOME`:
+
+```sh
+kura config --harness claude --harness pi --yes
+```
+
+A missing fixed catalog offers one choice on that first run:
+
+```text
+The catalog directory does not exist.
+Create ~/.config/kura/catalog with an empty skills/ directory? [y/N]
+```
+
+Once machine configuration exists, a further `--global-harness`-style bootstrap has nothing left to do: repeated `--harness` on `config` simply replaces the saved set.
 
 ## `list`
 
