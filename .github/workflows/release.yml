@@ -55,11 +55,23 @@ jobs:
             "$smoke_dir/kura" list --type skill > /dev/null
           (cd dist && sha256sum --check kura.sha256)
 
+      # Creating the tag from the GitHub Release UI publishes the release before
+      # this job starts. Re-running a published tag must not replace its assets.
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            ready=$(gh release view "$TAG" --json assets --jq '[.assets[].name] | (index("kura") != null) and (index("kura.sha256") != null)')
+            if [ "$ready" = true ]; then
+              echo "Release $TAG already exists; leaving published assets unchanged."
+              exit 0
+            fi
+            echo "Release $TAG exists without this build's assets; uploading them."
+            gh release upload "$TAG" dist/kura dist/kura.sha256
+            exit 0
+          fi
           gh release create "$TAG" \
             dist/kura \
             dist/kura.sha256 \

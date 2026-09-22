@@ -26,6 +26,7 @@ pins both.
    workflow validates the tag, repeats the tests and deterministic build, smoke-tests
    the asset, and publishes `kura` and `kura.sha256` to the corresponding GitHub
    Release with generated notes. Do not reuse or move a published release tag.
+   If that GitHub Release already exists, publish is a no-op so a re-run does not fail or replace assets.
 5. Update the installer that pins it: the release tag and the checksum change
    together, and rolling back is the same edit in reverse.
 
