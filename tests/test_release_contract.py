@@ -82,11 +82,11 @@ def test_outdated_uses_the_fixed_catalog_without_machine_configuration(tmp_path,
     assert "coderabbit" in capsys.readouterr().out
 
 
-def test_missing_fixed_catalog_names_the_path_and_init_remedy(tmp_path):
+def test_missing_fixed_catalog_names_the_path_and_config_remedy(tmp_path):
     with pytest.raises(config.Malformed) as raised:
         config.effective_catalog(tmp_path)
     assert str(config.catalog_path(tmp_path)) in str(raised.value)
-    assert "kura init" in str(raised.value)
+    assert "kura config" in str(raised.value)
 
 
 def test_packaging_check_uses_the_interpreter_stdlib_inventory():

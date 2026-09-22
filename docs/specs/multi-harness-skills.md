@@ -65,7 +65,7 @@ Rules:
 - Unknown fields may be preserved when Kura rewrites a valid file, but they do not affect behavior.
 - The retired `catalog` field is accepted from an older configuration and removed on rewrite.
 - Unknown schema versions and harness IDs are refusals.
-- First-run `init` may create machine config after explicit confirmation.
+- First-run `config` may create machine config after explicit confirmation. `init` never creates it and refuses without one.
 
 ### Project manifest
 
@@ -256,10 +256,8 @@ It uses cwd and refuses in `$HOME`.
 It suggests harnesses from project footprints and installed executables, with footprints ranked above executables.
 The user must select at least one harness and is never asked for a default.
 
-If machine config is absent, interactive initialization collects globally enabled harnesses.
-A missing fixed catalog may be created after confirmation with only `skills/`.
-Noninteractive bootstrap accepts repeated `--harness`, repeated `--global-harness`, and `--yes`.
-`--global-harness` on `init` refuses after machine config exists and directs the user to `config`.
+`init` requires machine config to already exist and refuses, naming `kura config`, when it is absent.
+Noninteractive runs accept repeated `--harness` and `--yes`.
 
 Re-running `init` replaces the selected harness set, retains direct skills, and converges views.
 Removing a harness deletes only its managed links.
@@ -284,7 +282,8 @@ Foreign or real content causes refusal and an unconditional per-entry difference
 ### `config`
 
 Bare `config` prints the saved machine configuration and fixed catalog path.
-Repeated `--harness` replaces `globalHarnesses`.
+A mutation against an absent machine config creates it instead of refusing: `config` is the only command that does, and it may create the fixed catalog's empty `skills/` directory after confirmation on that first run.
+Once machine config exists, repeated `--harness` replaces `globalHarnesses`.
 Mutations support `--yes`, `--dry-run`, and `--verbose` and converge global views in the same transaction.
 
 ### `add` and `remove`
