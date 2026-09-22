@@ -100,15 +100,16 @@ Matching names in different developers' catalogs are intentionally treated as eq
 
 ## Quick start
 
-Initialize a project and the machine configuration noninteractively:
+Bootstrap the machine, once, from anywhere:
 
 ```sh
-kura init \
-  --harness claude \
-  --harness pi \
-  --global-harness claude \
-  --global-harness pi \
-  --yes
+kura config --harness claude --harness pi --yes
+```
+
+Then initialize a project:
+
+```sh
+kura init --harness claude --harness pi --yes
 ```
 
 Then add a project skill:
@@ -127,14 +128,12 @@ Artifact commands use `--type skill` because skills are the only managed artifac
 ### `init`
 
 ```text
-kura init [--harness {claude,pi}] [--global-harness {claude,pi}] [--yes] [--dry-run] [--verbose]
+kura init [--harness {claude,pi}] [--yes] [--dry-run] [--verbose]
 ```
 
 `init` is the first project mutation and refuses in `$HOME`.
+It requires machine configuration to already exist and directs the user to `kura config` when it does not.
 Repeated `--harness` values select the complete project harness set.
-On first machine setup, repeated `--global-harness` values supply machine configuration.
-After machine configuration exists, `--global-harness` refuses and directs the user to `config`.
-If the fixed catalog does not exist, `init` can create an empty `~/.config/kura/catalog/skills` after confirmation.
 `--yes` accepts the complete safe plan.
 `--dry-run` writes nothing and does not require `--yes`.
 `--verbose` includes every migration and native-view decision.
@@ -157,7 +156,8 @@ kura config [--harness {claude,pi}] [--yes] [--dry-run] [--verbose]
 ```
 
 Bare `config` prints the machine configuration and fixed catalog path.
-Repeated `--harness` values replace the complete global harness set and immediately converge global views.
+A mutation is the first machine setup when no machine configuration exists yet: `config` is the only command that creates one, and it may create an empty `~/.config/kura/catalog/skills` after confirmation when the fixed catalog is also absent.
+Once machine configuration exists, repeated `--harness` values replace the complete global harness set and immediately converge global views.
 `--yes`, `--dry-run`, and `--verbose` have the same planning meanings as on `init`.
 
 ### `list`

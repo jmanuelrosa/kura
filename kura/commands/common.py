@@ -35,7 +35,7 @@ def machine(required=True, require_catalog=True):
     if required and saved is None:
         raise Refusal(
             errors.NO_PROJECT,
-            "Kura machine configuration does not exist.\n  Run `kura init` in a project.",
+            "Kura machine configuration does not exist.\n  Run `kura config` to create it.",
         )
     try:
         catalog_root = config.effective_catalog(home, require=require_catalog)
@@ -70,6 +70,32 @@ def loaded_catalog(root):
         return cat.build_catalog(Path(root))
     except (OSError, ValueError, TypeError, AttributeError) as exc:
         raise Refusal(errors.DRIFT, f"Catalog {root} is invalid: {exc}") from exc
+
+
+def bootstrap_catalog(home, interactive, yes, dry_run, input_fn):
+    """True when the fixed catalog does not exist yet and must be created.
+
+    Only `config` calls this: it is the one command that may create machine
+    configuration, and an absent catalog is only ever a question on that first run.
+    """
+    root = config.catalog_path(home)
+    if root.is_symlink() or root.exists():
+        if not root.is_dir():
+            raise Refusal(errors.DRIFT, f"Catalog {root} is not a directory.")
+        if not (root / cat.STORE[cat.SKILL]).is_dir():
+            raise Refusal(
+                errors.DRIFT,
+                f"Catalog {root} has no skills/ directory. Add skills/ and rerun `kura config`.",
+            )
+        return False
+    if yes or dry_run:
+        return True
+    if not interactive:
+        raise Refusal(errors.USAGE, f"Catalog {root} does not exist. Re-run with --yes to create it.")
+    answer = input_fn(f"Create {root} with an empty skills/ directory? [y/N] ").strip().lower()
+    if answer not in ("y", "yes"):
+        raise Refusal(errors.USAGE, "Catalog creation declined; nothing was changed.")
+    return True
 
 
 _UNSET = object()

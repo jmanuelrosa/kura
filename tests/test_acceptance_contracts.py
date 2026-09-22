@@ -241,10 +241,8 @@ def test_first_bootstrap_supports_a_symlinked_config_directory(
 
     assert cli.main(
         [
-            "init",
+            "config",
             "--harness",
-            "claude",
-            "--global-harness",
             "claude",
             "--yes",
         ]

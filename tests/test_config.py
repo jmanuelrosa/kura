@@ -175,3 +175,89 @@ def test_config_mutation_refuses_when_the_fixed_catalog_is_missing(machine, caps
     assert cli.main(["config", "--harness", "claude", "--yes"]) == errors.DRIFT
     assert str(config.catalog_path(home)) in capsys.readouterr().err
     assert config.read(home).global_harnesses == ("claude", "pi")
+
+
+# --- first-run bootstrap: config, not init, creates machine configuration ---
+
+
+def test_bootstrap_creates_machine_configuration_with_an_existing_catalog(machine):
+    home, _, _ = machine
+
+    assert cli.main(["config", "--harness", "claude", "--harness", "pi", "--yes"]) == errors.OK
+
+    assert config.read(home).global_harnesses == ("claude", "pi")
+
+
+def test_bootstrap_dry_run_writes_nothing(machine):
+    home, _, _ = machine
+
+    assert cli.main(["config", "--harness", "claude", "--dry-run"]) == errors.OK
+
+    assert config.read(home) is None
+
+
+def test_bootstrap_noninteractive_missing_catalog_requires_yes(tmp_path, monkeypatch, capsys):
+    home = tmp_path / "home"
+    cwd = tmp_path / "cwd"
+    home.mkdir()
+    cwd.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.chdir(cwd)
+
+    assert cli.main(["config", "--harness", "claude"]) == errors.USAGE
+
+    assert "does not exist" in capsys.readouterr().err
+    assert not config.catalog_path(home).exists()
+    assert config.read(home) is None
+
+
+def test_bootstrap_interactive_creates_the_missing_catalog_after_confirmation(
+    tmp_path, monkeypatch
+):
+    home = tmp_path / "home"
+    cwd = tmp_path / "cwd"
+    home.mkdir()
+    cwd.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.chdir(cwd)
+
+    class TerminalInput(io.StringIO):
+        def isatty(self):
+            return True
+
+    monkeypatch.setattr(sys, "stdin", TerminalInput("yes\nyes\n"))
+
+    assert cli.main(["config", "--harness", "claude"]) == errors.OK
+
+    assert (config.catalog_path(home) / "skills").is_dir()
+    assert config.read(home).global_harnesses == ("claude",)
+
+
+def test_bootstrap_declining_the_missing_catalog_changes_nothing(tmp_path, monkeypatch, capsys):
+    home = tmp_path / "home"
+    cwd = tmp_path / "cwd"
+    home.mkdir()
+    cwd.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.chdir(cwd)
+
+    class TerminalInput(io.StringIO):
+        def isatty(self):
+            return True
+
+    monkeypatch.setattr(sys, "stdin", TerminalInput("no\n"))
+
+    assert cli.main(["config", "--harness", "claude"]) == errors.USAGE
+
+    assert "nothing was changed" in capsys.readouterr().err
+    assert not config.catalog_path(home).exists()
+    assert config.read(home) is None
+
+
+def test_init_without_machine_configuration_directs_the_user_to_config(machine, capsys):
+    assert cli.main(["init", "--harness", "claude", "--yes"]) == errors.NO_PROJECT
+
+    assert "kura config" in capsys.readouterr().err

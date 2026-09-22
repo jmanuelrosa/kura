@@ -42,14 +42,12 @@ def catalog_at(path, dependencies=False):
 
 def arguments(
     harnesses=("claude",),
-    global_harnesses=("claude",),
     yes=True,
     dry_run=False,
     verbose=False,
 ):
     return SimpleNamespace(
         harnesses=list(harnesses),
-        global_harnesses=list(global_harnesses),
         yes=yes,
         dry_run=dry_run,
         verbose=verbose,
@@ -66,6 +64,7 @@ def setup(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     monkeypatch.chdir(project)
+    config.write(config.Config(("claude",)), home)
     return home, project, catalog
 
 
@@ -147,11 +146,12 @@ def test_non_regular_instruction_destination_refuses(setup, capsys):
 def test_existing_catalog_without_skills_refuses(setup, capsys):
     home, project, catalog = setup
     (catalog / "skills").rmdir()
+    config_before = config.path_for(home).read_bytes()
 
     assert init_command.run(arguments()) == errors.DRIFT
 
     assert "has no skills/ directory" in capsys.readouterr().err
-    assert not config.path_for(home).exists()
+    assert config.path_for(home).read_bytes() == config_before
     assert not state.path_for(project).exists()
 
 
@@ -161,7 +161,7 @@ def test_missing_fixed_catalog_is_actionable_drift(setup, capsys):
     catalog.rmdir()
     config.write(config.Config(("claude",)), home)
 
-    assert init_command.run(arguments(global_harnesses=())) == errors.DRIFT
+    assert init_command.run(arguments()) == errors.DRIFT
 
     captured = capsys.readouterr()
     assert "Cannot resolve the catalog" in captured.err
@@ -181,7 +181,7 @@ def test_conflicting_root_and_legacy_manifests_refuse_with_semantic_difference(s
     legacy.write_text(json.dumps({"installed": {"skills": {"helper": "direct"}}}))
     legacy_before = legacy.read_bytes()
 
-    assert init_command.run(arguments(global_harnesses=())) == errors.DRIFT
+    assert init_command.run(arguments()) == errors.DRIFT
 
     captured = capsys.readouterr()
     assert "Cannot migrate project state" in captured.err
@@ -225,7 +225,7 @@ def test_unsafe_legacy_pi_bridge_entries_refuse(setup, tmp_path, entry_kind, exp
     legacy_before = legacy.read_bytes()
 
     assert init_command.run(
-        arguments(harnesses=("claude", "pi"), global_harnesses=())
+        arguments(harnesses=("claude", "pi"))
     ) == errors.DRIFT
 
     captured = capsys.readouterr()
@@ -263,6 +263,8 @@ def test_dry_run_renders_the_complete_summary_and_writes_nothing(tmp_path, monke
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     monkeypatch.chdir(project)
+    config.write(config.Config(("claude", "pi")), home)
+    config_before = config.path_for(home).read_bytes()
     legacy = write_legacy_plan(project)
     legacy_before = legacy.read_bytes()
 
@@ -277,12 +279,11 @@ def test_dry_run_renders_the_complete_summary_and_writes_nothing(tmp_path, monke
     assert "2 legacy agent/plugin records preserved" in output
     assert "Native views\n  4 links to create" in output
     assert "State\n  Catalog: use" in output
-    assert "Machine configuration: create" in output
     assert "Project manifest: create" in output
     assert "Skill details" not in output
     assert "Nothing written (--dry-run)" in output
     assert legacy.read_bytes() == legacy_before
-    assert not config.path_for(home).exists()
+    assert config.path_for(home).read_bytes() == config_before
     assert not state.path_for(project).exists()
     assert not (project / "AGENTS.md").exists()
     assert not (project / "CLAUDE.md").exists()
@@ -298,6 +299,7 @@ def test_verbose_plan_enumerates_every_conversion_and_destination(tmp_path, monk
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     monkeypatch.chdir(project)
+    config.write(config.Config(("claude", "pi")), home)
     legacy = write_legacy_plan(project)
 
     assert init_command.run(
@@ -321,34 +323,8 @@ def test_verbose_plan_enumerates_every_conversion_and_destination(tmp_path, monk
         for name in ("helper", "review"):
             assert f"create: {harness_name} '{name}'" in output
     assert "State details" in output
-    assert "write: machine configuration at ~/.config/kura/config.json" in output
     assert f"write: project manifest at {state.path_for(project)}" in output
     assert f"delete after success: legacy manifest at {legacy}" in output
-
-
-def test_interactive_affirmative_creates_an_explicit_missing_catalog(
-    tmp_path,
-    monkeypatch,
-):
-    home = tmp_path / "home"
-    project = tmp_path / "project"
-    catalog = config.catalog_path(home)
-    home.mkdir()
-    project.mkdir()
-    monkeypatch.setenv("HOME", str(home))
-    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
-    monkeypatch.chdir(project)
-    monkeypatch.setattr(init_command.sys, "stdin", TTY())
-    answers = iter(("yes", "yes"))
-    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
-
-    assert init_command.run(arguments(yes=False)) == errors.OK
-
-    assert (catalog / "skills").is_dir()
-    assert config.read(home).global_harnesses == ("claude",)
-    assert state.read_strict(project).harnesses == ("claude",)
-    assert (project / "AGENTS.md").read_bytes() == b"# Project instructions\n"
-    assert (project / "CLAUDE.md").read_bytes() == b"@AGENTS.md\n"
 
 
 def test_interactive_negative_cancels_without_writes(setup, monkeypatch, capsys):
@@ -356,10 +332,12 @@ def test_interactive_negative_cancels_without_writes(setup, monkeypatch, capsys)
     monkeypatch.setattr(init_command.sys, "stdin", TTY())
     monkeypatch.setattr("builtins.input", lambda prompt: "no")
 
+    config_before = config.path_for(home).read_bytes()
+
     assert init_command.run(arguments(yes=False)) == errors.OK
 
     assert "Initialization cancelled; nothing was changed" in capsys.readouterr().out
-    assert not config.path_for(home).exists()
+    assert config.path_for(home).read_bytes() == config_before
     assert not state.path_for(project).exists()
     assert not (project / "AGENTS.md").exists()
     assert not (project / "CLAUDE.md").exists()
@@ -372,12 +350,13 @@ def test_interactive_eof_refuses_without_writes(setup, monkeypatch, capsys):
     def end_input(prompt):
         raise EOFError
 
+    config_before = config.path_for(home).read_bytes()
     monkeypatch.setattr("builtins.input", end_input)
 
     assert init_command.run(arguments(yes=False)) == errors.USAGE
 
     assert "Input ended before confirmation; nothing was changed" in capsys.readouterr().err
-    assert not config.path_for(home).exists()
+    assert config.path_for(home).read_bytes() == config_before
     assert not state.path_for(project).exists()
     assert not (project / "AGENTS.md").exists()
     assert not (project / "CLAUDE.md").exists()

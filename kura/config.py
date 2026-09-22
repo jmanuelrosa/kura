@@ -108,6 +108,6 @@ def effective_catalog(home=None, require=True):
     if require and not root.is_dir():
         raise Malformed(
             f"the fixed catalog {root} is not a directory; "
-            f"create {root / 'skills'} or run `kura init` in a project"
+            f"create {root / 'skills'} or run `kura config` to create it"
         )
     return root

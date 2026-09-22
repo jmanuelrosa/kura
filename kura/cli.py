@@ -399,14 +399,6 @@ def build_parser():
         choices=("claude", "pi"),
         help="select a project harness (repeatable)",
     )
-    init.add_argument(
-        "--global-harness",
-        dest="global_harnesses",
-        action="append",
-        default=[],
-        choices=("claude", "pi"),
-        help="enable a global harness during first machine setup (repeatable)",
-    )
     init.add_argument("--yes", action="store_true", help="apply the complete safe plan")
     init.add_argument("--dry-run", action="store_true", help="show the plan without writing")
     init.add_argument("--verbose", action="store_true", help="show every conversion and native link")

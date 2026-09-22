@@ -35,7 +35,7 @@ def _machine(home, findings):
         findings.append(Finding("machine-config", PROBLEM, "Machine configuration", str(exc), None))
         machine = None
     if machine is None:
-        findings.append(Finding("machine-config", NOTE, "Machine configuration", "not created; run `kura init` in a project", None))
+        findings.append(Finding("machine-config", NOTE, "Machine configuration", "not created; run `kura config` to create it", None))
     try:
         root = config.effective_catalog(home)
     except config.Malformed as exc:
