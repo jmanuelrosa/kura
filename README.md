@@ -15,12 +15,19 @@ chmod +x kura
 mv kura ~/.local/bin/
 ```
 
-There is no `--version` flag.
-A release tag and the verified asset checksum identify the installed build.
+Installed builds report their semver with `--version`:
+
+```sh
+kura --version
+```
+
+The release tag should match that string (without the leading `v`).
+The verified asset checksum still pins the exact bytes for installers and automation.
 
 Development commands use the shim in this checkout:
 
 ```sh
+./bin/kura --version
 ./bin/kura -h
 make test
 make checksum
@@ -94,6 +101,20 @@ Registry metadata may add:
 - `dependencies`
 - `dependency_only`
 - upstream repository fields used by `update` and `outdated`
+
+[docs/schemas/skill-registry.schema.json](docs/schemas/skill-registry.schema.json) describes that file for editors.
+A registry naming it is completed and validated while it is edited:
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/jmanuelrosa/kura/main/docs/schemas/skill-registry.schema.json",
+  "version": 2,
+  "local_skills": [{ "name": "review", "groups": ["global"] }]
+}
+```
+
+The schema is an authoring aid rather than a gate.
+Kura's own refusals decide whether a registry is usable, and it ignores both `$schema` and `version`.
 
 Kura records neither a catalog ID nor content digests.
 Matching names in different developers' catalogs are intentionally treated as equivalent intent.

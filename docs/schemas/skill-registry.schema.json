@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/jmanuelrosa/kura/main/docs/schemas/skill-registry.schema.json",
+  "title": "Kura skill registry",
+  "description": "Optional metadata for the catalog at ~/.config/kura/catalog. Skills are discovered from skills/<name>/SKILL.md; this file adds groups, dependencies, global policy and upstream sources on top of them. An entry named here whose source directory is absent stays representable so `kura list` and `kura doctor` can report it as missing.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "URL or relative path of this schema."
+    },
+    "version": {
+      "type": "integer",
+      "default": 2,
+      "description": "Registry format version. Kura does not read it; existing registries carry 2."
+    },
+    "repos": {
+      "type": ["object", "null"],
+      "description": "Upstream repositories, keyed by GitHub owner/repo. Only skills listed here are targets for `kura update` and `kura outdated`.",
+      "propertyNames": {
+        "pattern": "^[^\\s/]+/[^\\s/]+/?$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/repo"
+      }
+    },
+    "local_skills": {
+      "type": ["array", "null"],
+      "description": "Skills authored in the catalog itself. They have no upstream, so `kura update` leaves them alone.",
+      "items": {
+        "$ref": "#/$defs/localSkill"
+      }
+    }
+  },
+  "$defs": {
+    "repo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branch"],
+      "properties": {
+        "branch": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Ref fetched as https://github.com/<repo>/archive/<branch>.tar.gz.",
+          "examples": ["main"]
+        },
+        "skills": {
+          "type": ["array", "null"],
+          "items": {
+            "$ref": "#/$defs/repoSkill"
+          }
+        }
+      }
+    },
+    "repoSkill": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "upstream_path": {
+          "type": "string",
+          "description": "Path of the skill inside the fetched repository. Empty, \".\" or \"/\" means the repository root is itself the skill. Its last component names the skill unless `name` overrides it.",
+          "examples": ["skills/brainstorming", "."]
+        },
+        "name": {
+          "$ref": "#/$defs/skillName",
+          "description": "Overrides the name derived from `upstream_path`."
+        },
+        "groups": {
+          "$ref": "#/$defs/groups"
+        },
+        "dependencies": {
+          "$ref": "#/$defs/dependencies"
+        },
+        "dependency_only": {
+          "$ref": "#/$defs/dependencyOnly"
+        },
+        "updated_at": {
+          "$ref": "#/$defs/updatedAt"
+        },
+        "note": {
+          "$ref": "#/$defs/note"
+        }
+      }
+    },
+    "localSkill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/skillName"
+        },
+        "groups": {
+          "$ref": "#/$defs/groups"
+        },
+        "dependencies": {
+          "$ref": "#/$defs/dependencies"
+        },
+        "dependency_only": {
+          "$ref": "#/$defs/dependencyOnly"
+        },
+        "updated_at": {
+          "$ref": "#/$defs/updatedAt"
+        },
+        "note": {
+          "$ref": "#/$defs/note"
+        }
+      }
+    },
+    "skillName": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!\\.\\.?$)[^/\\\\\\u0000]+$",
+      "description": "One safe path component. It must equal the directory name under the catalog's skills/ and the `name` in that skill's SKILL.md frontmatter; a mismatch blocks installation."
+    },
+    "groups": {
+      "type": ["array", "null"],
+      "description": "Opaque tags, matched exactly and never normalised. `global` is durable global policy: the skill and its dependencies are linked into every globally enabled harness by `kura sync`.",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "examples": [["engineering", "global"]]
+    },
+    "dependencies": {
+      "type": ["array", "null"],
+      "description": "Skill names pulled in recursively whenever this skill is installed. Dependencies are never written to a project's kura.json.",
+      "items": {
+        "$ref": "#/$defs/skillName"
+      }
+    },
+    "dependencyOnly": {
+      "type": "boolean",
+      "default": false,
+      "description": "The skill installs only as another skill's dependency and refuses `kura add` by name."
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When `kura update` last replaced the skill's content. Written as %Y-%m-%dT%H:%M:%SZ.",
+      "examples": ["2026-01-01T00:00:00Z"]
+    },
+    "note": {
+      "type": "string",
+      "description": "Free-form annotation. Kura ignores it."
+    }
+  }
+}
