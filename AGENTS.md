@@ -44,7 +44,7 @@ Breaking one of these is a defect even when the suite still passes.
 - **`remove` never leaves the project it starts in.** Cross-scope cascade would need a machine-wide index that goes stale the moment a checkout moves.
 - **`--type skill|agent|plugin` is explicit wherever a type is meaningful.** Nothing is inferred from a name, so the three namespaces may overlap.
 - **The `, 0 changes` marker in `sync`'s and `converge`'s closing summary is a contract**, matched by whatever provisions a machine. Rewording it makes every provisioning run report a change.
-- **No `--version` flag.** A release is identified by its tag and its asset checksum.
+- **`--version` prints `kura/__version__.py`.** Bump it to match the release tag (without `v`) before tagging; the asset checksum still pins the exact bytes.
 - **The build is deterministic.** Two builds of one tree must produce the same digest, or the checksum stops identifying the source.
 
 ## Tests

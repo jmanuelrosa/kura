@@ -1,8 +1,9 @@
 # Releasing
 
-There is no `--version` flag. A release is identified by its tag for a human and by
-the SHA-256 checksum of its asset for a machine, and whatever installs the command
-pins both.
+Set `kura/__version__.py` to the semver you are about to tag (no leading `v`), then
+run the checklist below. `kura --version` prints that string; the SHA-256 checksum
+of the asset still identifies the exact bytes for machines, and whatever installs
+the command pins tag and checksum together.
 
 1. `make test`. The suite reads only `tests/fixtures/catalog/`, so it needs no
    machine state and no network.

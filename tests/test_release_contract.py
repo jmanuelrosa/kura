@@ -1,14 +1,39 @@
 """Contracts shared by release automation, documentation, and packaging checks."""
 
+import re
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from kit_helpers import CATALOG, TOOL
+from kit_helpers import CATALOG, SHIM, TOOL
 from kura import config, errors, upstream
+from kura.__version__ import __version__
 from kura.commands import pull
+
+_SEMVER = re.compile(
+    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+    r"(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$"
+)
+
+
+def test_package_version_is_semver():
+    assert _SEMVER.match(__version__), f"__version__ is not semver: {__version__!r}"
+
+
+def test_version_flag_prints_the_package_version():
+    result = subprocess.run(
+        [sys.executable, str(SHIM), "--version"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == errors.OK
+    assert result.stdout.strip() == f"kura {__version__}"
+    assert result.stderr == ""
 
 
 @pytest.mark.parametrize(

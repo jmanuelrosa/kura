@@ -10,8 +10,7 @@ test:
 build:
 	python3 build.py
 
-# The identity a release is pinned by: there is no --version flag, so the tag names
-# the release for a human and this names it for a machine.
+# Checksum names the exact asset bytes; kura --version names the semver for humans.
 checksum: build
 	shasum -a 256 dist/kura
 
