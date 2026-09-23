@@ -4,6 +4,9 @@
 The multi-harness implementation discovers skills from `skills/<name>/SKILL.md` and merges optional `skill-registry.json` metadata.
 `tests/conftest.py` places it at `~/.config/kura/catalog` under an isolated temporary home, while lifecycle tests that mutate catalog data create their own fixed-path catalogs.
 
+Its `skill-registry.json` names [the registry schema](../../docs/schemas/skill-registry.schema.json) relatively, so the committed example is validated while it is edited.
+Kura ignores the key, and the fixture is the worked example the schema is checked against.
+
 The retained `agents/`, `plugins/`, and `agent-registry.json` fixtures describe the legacy state that migration preserves without managing.
 They are no longer catalog inputs for the skills-only phase.
 

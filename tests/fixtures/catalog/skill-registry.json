@@ -1,4 +1,5 @@
 {
+  "$schema": "../../../docs/schemas/skill-registry.schema.json",
   "repos": {
     "fixture-org/fixture-skills": {
       "branch": "main",

@@ -17,6 +17,7 @@ import sys
 
 from . import errors
 from . import colors, ui
+from .__version__ import __version__
 
 # Python 3.14 paints argparse's own output in its own theme (blue usage, magenta prog,
 # green flags), which would show through ours as nested escapes and a palette the
@@ -379,6 +380,12 @@ def build_parser():
         # their descriptions keep wrapping to the terminal.
         formatter_class=RawHelp,
         **NO_ARGPARSE_COLOR,
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+        help="show the release version and exit",
     )
     sub = parser.add_subparsers(
         dest="command",
