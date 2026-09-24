@@ -31,6 +31,7 @@ class Plan:
     missing: list = field(default_factory=list)
     logical_skills: set = field(default_factory=set)
     notes: list = field(default_factory=list)
+    global_fallbacks: dict = field(default_factory=dict)
 
     @property
     def changes(self):
@@ -47,6 +48,8 @@ class Plan:
         self.missing.extend(other.missing)
         self.logical_skills.update(other.logical_skills)
         self.notes.extend(other.notes)
+        for harness_id, names in other.global_fallbacks.items():
+            self.global_fallbacks.setdefault(harness_id, set()).update(names)
         return self
 
     def ordered_actions(self):
@@ -240,29 +243,33 @@ def project_plan(
     pending = set(pending_global)
     required_global = set(new_resolution.names) & global_names
     enabled = set(global_harnesses)
+    project_names = {}
     for harness_id in new_manifest.harnesses:
+        local = set(new_resolution.names) - global_names
         for name in sorted(required_global):
             if harness_id not in enabled:
-                plan.blocked.append(
-                    f"{harnesses.get(harness_id).display_name}: global harness is not enabled for '{name}'"
-                )
+                local.add(name)
+                continue
+            if (harness_id, name) in pending:
                 continue
             art = skill_map[name]
             destination = harnesses.skill_path(harness_id, name, home)
-            if (harness_id, name) in pending:
-                continue
-            if classify(destination, art.source, roots).state != CURRENT:
+            status = classify(destination, art.source, roots).state
+            if status == MISSING:
+                local.add(name)
+                plan.global_fallbacks.setdefault(harness_id, set()).add(name)
+            elif status != CURRENT:
                 plan.blocked.append(
                     f"{harnesses.get(harness_id).display_name}: global link for '{name}' is not current at {destination}"
                 )
+        project_names[harness_id] = local
 
-    desired = set(new_resolution.names) - global_names
     root_expectations = {}
     for harness_id in new_manifest.harnesses:
         root_expectations[harness_id] = _add_desired(
             plan,
             harness_id,
-            desired,
+            project_names[harness_id],
             home,
             project,
             skill_map,
@@ -296,7 +303,7 @@ def project_plan(
                         f"{harnesses.get(harness_id).display_name}: {collision}"
                     )
                     continue
-            keep = (desired | set(new_resolution.missing_direct)) if harness_id in selected else set()
+            keep = (project_names[harness_id] | set(new_resolution.missing_direct)) if harness_id in selected else set()
             for name in sorted(managed_candidates - keep):
                 path = harnesses.skill_path(harness_id, name, home, project)
                 before = _managed_link(path, roots)

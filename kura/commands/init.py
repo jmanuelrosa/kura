@@ -411,6 +411,7 @@ def run(args):
                 ui.note("Initialization cancelled; nothing was changed.")
                 return errors.OK
         common.apply_plan(combined, final)
+        common.warn_global_fallbacks(combined)
         ui.done(
             f"Initialized {len(declaration.skills)} direct skills across "
             f"{len(declaration.harnesses)} harnesses, {combined.changes} filesystem changes"

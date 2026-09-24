@@ -99,6 +99,7 @@ def run(args):
         if added or plan.actions:
             common.apply_plan(plan, [common.manifest_action(project, declaration, manifest)])
         common.report_actions(plan.ordered_actions())
+        common.warn_global_fallbacks(plan)
         if not added and not plan.actions:
             ui.ok("Nothing to adopt: every eligible skill is already declared and current.")
         ui.done(f"{len(added)} direct skills adopted, {plan.changes} link changes")

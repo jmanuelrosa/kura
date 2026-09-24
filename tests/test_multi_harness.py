@@ -132,6 +132,118 @@ def test_init_and_add_create_independent_native_links(setup):
     )
 
 
+def test_init_without_global_sync_links_declared_skills_into_the_project(setup, capsys):
+    home, project, catalog = setup
+    config.write(config.Config(("claude", "pi")), home)
+    declaration = state.Manifest(("claude", "pi"), ("global-tool",))
+    state.write(project, declaration)
+
+    assert cli.main(["init", "--harness", "claude", "--harness", "pi", "--yes"]) == errors.OK
+    output = capsys.readouterr().out
+    assert "Globally tagged skills" in output
+    assert "Claude Code, Pi" in output
+    assert "kura sync" in output
+    assert state.read_strict(project) == declaration
+    for harness_id in declaration.harnesses:
+        local = harnesses.skill_path(harness_id, "global-tool", home, project)
+        assert local.is_symlink() and local.resolve() == catalog / "skills" / "global-tool"
+        assert not harnesses.skill_path(harness_id, "global-tool", home).exists()
+
+    assert cli.main(["converge"]) == errors.OK
+    assert "kura sync" not in capsys.readouterr().out
+    assert cli.main(["list", "--type", "skill", "--json"]) == errors.OK
+    row = next(row for row in json.loads(capsys.readouterr().out) if row["name"] == "global-tool")
+    assert row["state"] == "linked"
+    assert row["installed"] == "project"
+    assert {key: view["state"] for key, view in row["views"].items()} == {
+        "claude": "linked", "pi": "linked",
+    }
+
+    assert cli.main(["sync"]) == errors.OK
+    assert cli.main(["converge"]) == errors.OK
+    assert "kura sync" not in capsys.readouterr().out
+    for harness_id in declaration.harnesses:
+        assert not harnesses.skill_path(harness_id, "global-tool", home, project).exists()
+        assert harnesses.skill_path(harness_id, "global-tool", home).is_symlink()
+    assert state.read_strict(project) == declaration
+
+
+def test_init_with_one_global_view_uses_a_local_link_only_for_the_other(setup, capsys):
+    home, project, catalog = setup
+    config.write(config.Config(("claude", "pi")), home)
+    global_link = harnesses.skill_path("claude", "global-tool", home)
+    global_link.parent.mkdir(parents=True)
+    global_link.symlink_to(catalog / "skills" / "global-tool")
+    state.write(project, state.Manifest(("claude", "pi"), ("global-tool",)))
+
+    assert cli.main(["init", "--harness", "claude", "--harness", "pi", "--yes"]) == errors.OK
+    warning = capsys.readouterr().out
+    assert "kura sync" in warning and "Pi" in warning
+    assert "Claude Code, Pi" not in warning
+    assert not harnesses.skill_path("claude", "global-tool", home, project).exists()
+    assert harnesses.skill_path("pi", "global-tool", home, project).is_symlink()
+
+
+def test_project_harness_without_global_policy_uses_its_local_view(setup, capsys):
+    home, project, catalog = setup
+    config.write(config.Config(("claude",)), home)
+    state.write(project, state.Manifest(("claude", "pi"), ("global-tool",)))
+
+    assert cli.main(["init", "--harness", "claude", "--harness", "pi", "--yes"]) == errors.OK
+    output = capsys.readouterr().out
+    assert "kura sync" in output and "Claude Code" in output
+    assert "Claude Code, Pi" not in output
+    for harness_id in ("claude", "pi"):
+        assert harnesses.skill_path(harness_id, "global-tool", home, project).is_symlink()
+
+
+def test_init_dry_run_does_not_warn_that_local_fallback_was_linked(setup, capsys):
+    home, project, catalog = setup
+    config.write(config.Config(("claude", "pi")), home)
+    state.write(project, state.Manifest(("claude", "pi"), ("global-tool",)))
+
+    assert cli.main(["init", "--harness", "claude", "--harness", "pi", "--dry-run"]) == errors.OK
+    assert "kura sync" not in capsys.readouterr().out
+    assert not harnesses.skill_path("pi", "global-tool", home, project).exists()
+
+
+@pytest.mark.parametrize("collision", ("foreign", "stale", "real"))
+def test_conflicting_global_view_still_refuses_project_init(setup, tmp_path, collision):
+    home, project, catalog = setup
+    config.write(config.Config(("claude", "pi")), home)
+    global_link = harnesses.skill_path("pi", "global-tool", home)
+    global_link.parent.mkdir(parents=True)
+    if collision == "real":
+        global_link.mkdir()
+    else:
+        foreign = tmp_path / "foreign"
+        foreign.mkdir()
+        global_link.symlink_to(foreign if collision == "foreign" else catalog / "skills" / "review")
+    declaration = state.Manifest(("claude", "pi"), ("global-tool",))
+    state.write(project, declaration)
+
+    assert cli.main(["init", "--harness", "claude", "--harness", "pi", "--yes"]) == errors.DRIFT
+    assert state.read_strict(project) == declaration
+    assert not harnesses.skill_path("claude", "global-tool", home, project).exists()
+    assert not harnesses.skill_path("pi", "global-tool", home, project).exists()
+    assert global_link.exists()
+
+
+def test_converge_warns_after_restoring_a_missing_local_global_fallback(setup, capsys):
+    home, project, catalog = setup
+    config.write(config.Config(("claude", "pi")), home)
+    state.write(project, state.Manifest(("claude", "pi"), ("global-tool",)))
+
+    assert cli.main(["converge", "--dry-run"]) == errors.OK
+    assert "kura sync" not in capsys.readouterr().out
+    assert cli.main(["converge", "--quiet"]) == errors.OK
+    output = capsys.readouterr()
+    assert not output.out
+    assert "Claude Code, Pi" in output.err and "kura sync" in output.err
+    assert cli.main(["converge", "--quiet"]) == errors.OK
+    assert "kura sync" not in capsys.readouterr().err
+
+
 def test_project_add_refuses_registry_global_skill_without_changing_project(setup, capsys):
     home, project, catalog = setup
     assert initialize(catalog) == errors.OK
@@ -259,7 +371,7 @@ def test_list_marks_partial_selected_views_as_drift(setup, capsys):
     }
 
 
-def test_project_add_requires_every_global_dependency_view(setup):
+def test_project_add_uses_a_local_link_for_an_unsynced_global_dependency(setup, capsys):
     home, project, catalog = setup
     initialize(catalog)
     data = json.loads((catalog / "skill-registry.json").read_text())
@@ -267,9 +379,11 @@ def test_project_add_requires_every_global_dependency_view(setup):
     review["dependencies"].append("global-tool")
     (catalog / "skill-registry.json").write_text(json.dumps(data))
     harnesses.skill_path("pi", "global-tool", home).unlink()
-    assert cli.main(["add", "review", "--type", "skill"]) == errors.DRIFT
-    assert not harnesses.skill_path("claude", "review", home, project).exists()
-    assert state.read_strict(project).skills == ()
+    assert cli.main(["add", "review", "--type", "skill"]) == errors.OK
+    assert "kura sync" in capsys.readouterr().out
+    assert harnesses.skill_path("pi", "global-tool", home, project).is_symlink()
+    assert not harnesses.skill_path("claude", "global-tool", home, project).exists()
+    assert state.read_strict(project).skills == ("review",)
 
 
 def test_trust_updates_both_selected_native_stores(setup, monkeypatch):
