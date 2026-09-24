@@ -30,7 +30,7 @@ def catalog_at(path, dependencies=False):
         (path / "skill-registry.json").write_text(
             json.dumps(
                 {
-                    "local_skills": [
+                    "local": [
                         {"name": "review", "dependencies": ["helper"]},
                         {"name": "helper", "dependency_only": True},
                     ]

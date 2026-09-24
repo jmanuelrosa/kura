@@ -36,7 +36,7 @@ def setup(tmp_path, monkeypatch):
     catalog = catalog_at(
         config.catalog_path(home),
         {
-            "local_skills": [
+            "local": [
                 {"name": "review", "dependencies": ["helper"], "groups": ["review"]},
                 {"name": "helper", "dependency_only": True},
                 {"name": "global-tool", "groups": ["global"]},
@@ -221,7 +221,7 @@ def test_sync_refuses_to_prune_to_an_empty_global_set(setup):
     initialize(catalog)
     registry = catalog / "skill-registry.json"
     data = json.loads(registry.read_text())
-    for entry in data["local_skills"]:
+    for entry in data["local"]:
         entry["groups"] = [group for group in entry.get("groups", []) if group != "global"]
     registry.write_text(json.dumps(data))
     managed = harnesses.skill_path("claude", "global-tool", home)
@@ -249,7 +249,7 @@ def test_project_add_requires_every_global_dependency_view(setup):
     home, project, catalog = setup
     initialize(catalog)
     data = json.loads((catalog / "skill-registry.json").read_text())
-    review = next(entry for entry in data["local_skills"] if entry["name"] == "review")
+    review = next(entry for entry in data["local"] if entry["name"] == "review")
     review["dependencies"].append("global-tool")
     (catalog / "skill-registry.json").write_text(json.dumps(data))
     harnesses.skill_path("pi", "global-tool", home).unlink()

@@ -21,7 +21,7 @@ def make_catalog(path, global_skill=False):
     add_skill(path, "review")
     groups = ["global"] if global_skill else []
     (path / "skill-registry.json").write_text(
-        json.dumps({"local_skills": [{"name": "review", "groups": groups}]})
+        json.dumps({"local": [{"name": "review", "groups": groups}]})
     )
     return path
 
@@ -87,7 +87,7 @@ def test_converge_repairs_a_missing_selected_view(environment):
 def test_converge_deletes_only_redundant_managed_project_links(environment):
     home, project, catalog = environment
     registry = json.loads((catalog / "skill-registry.json").read_text())
-    registry["local_skills"][0]["groups"] = ["global"]
+    registry["local"][0]["groups"] = ["global"]
     (catalog / "skill-registry.json").write_text(json.dumps(registry))
     state.write(project, state.Manifest(("claude", "pi"), ("review",)))
     for harness_id in ("claude", "pi"):
@@ -214,7 +214,7 @@ def test_malformed_dependency_metadata_is_a_controlled_catalog_refusal(environme
     (catalog / "skill-registry.json").write_text(
         json.dumps(
             {
-                "local_skills": [
+                "local": [
                     {"name": "review", "dependencies": ["helper", 1]}
                 ]
             }

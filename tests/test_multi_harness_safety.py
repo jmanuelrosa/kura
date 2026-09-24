@@ -28,7 +28,7 @@ def make_catalog(tmp_path, entries, present):
     (root / "skills").mkdir()
     for name in present:
         add_skill(root, name)
-    (root / "skill-registry.json").write_text(json.dumps({"local_skills": entries}))
+    (root / "skill-registry.json").write_text(json.dumps({"local": entries}))
     return root, cat.build_catalog(root)
 
 

@@ -221,8 +221,8 @@ def test_copy_tree_creates_a_missing_parent(tmp_path):
 
 
 REGISTRY = {
-    "version": 2,
-    "repos": {
+    "version": 3,
+    "upstream": {
         "owner/one": {
             "branch": "main",
             "skills": [
@@ -232,7 +232,7 @@ REGISTRY = {
         },
         "owner/two": {"branch": "trunk", "skills": [{"upstream_path": ".", "groups": []}]},
     },
-    "local_skills": [{"name": "mine", "groups": ["ai"], "note": "Locally authored"}],
+    "local": [{"name": "mine", "groups": ["ai"], "note": "Locally authored"}],
 }
 
 
@@ -243,7 +243,7 @@ def test_e4_stamping_touches_only_the_named_entry(tmp_path):
     assert registry.stamp_entry(path, "owner/one", "skills/alpha", "2026-07-28T10:00:00Z")
     after = json.loads(path.read_text())
 
-    entries = after["repos"]["owner/one"]["skills"]
+    entries = after["upstream"]["owner/one"]["skills"]
     assert entries[0]["updated_at"] == "2026-07-28T10:00:00Z"
     assert entries[1]["updated_at"] == "2020-01-01T00:00:00Z", "sibling must not change"
 
@@ -270,8 +270,8 @@ def test_e4_key_order_is_preserved(tmp_path):
     registry.stamp_entry(path, "owner/one", "skills/alpha", "2026-07-28T10:00:00Z")
     after = json.loads(path.read_text())
     assert list(after) == list(REGISTRY)
-    assert list(after["repos"]) == list(REGISTRY["repos"])
-    assert list(after["repos"]["owner/one"]["skills"][0]) == [
+    assert list(after["upstream"]) == list(REGISTRY["upstream"])
+    assert list(after["upstream"]["owner/one"]["skills"][0]) == [
         "upstream_path", "groups", "updated_at",
     ]
 
@@ -281,7 +281,7 @@ def test_e4_an_entry_with_no_timestamp_gains_one(tmp_path):
     path.write_text(json.dumps(REGISTRY, indent=2) + "\n")
     registry.stamp_entry(path, "owner/two", ".", "2026-07-28T10:00:00Z")
     after = json.loads(path.read_text())
-    assert after["repos"]["owner/two"]["skills"][0]["updated_at"] == "2026-07-28T10:00:00Z"
+    assert after["upstream"]["owner/two"]["skills"][0]["updated_at"] == "2026-07-28T10:00:00Z"
 
 
 def test_e4_an_unmatched_entry_writes_nothing(tmp_path):
@@ -289,6 +289,17 @@ def test_e4_an_unmatched_entry_writes_nothing(tmp_path):
     original = json.dumps(REGISTRY, indent=2) + "\n"
     path.write_text(original)
     assert registry.stamp_entry(path, "owner/one", "skills/nope", "2026-07-28T10:00:00Z") is False
+    assert path.read_text() == original
+
+
+@pytest.mark.parametrize("retired_key", ["repos", "local_skills"])
+def test_e4_stamping_rejects_retired_registry_keys(tmp_path, retired_key):
+    path = tmp_path / "skill-registry.json"
+    original = json.dumps({**REGISTRY, retired_key: {}}) + "\n"
+    path.write_text(original)
+
+    with pytest.raises(ValueError, match="retired"):
+        registry.stamp_entry(path, "owner/one", "skills/alpha", "2026-07-28T10:00:00Z")
     assert path.read_text() == original
 
 
@@ -321,8 +332,8 @@ def fixture_repo(tmp_path):
     (claude / "skill-registry.json").write_text(
         json.dumps(
             {
-                "version": 2,
-                "repos": {
+                "version": 3,
+                "upstream": {
                     "owner/one": {
                         "branch": "main",
                         "skills": [
@@ -331,7 +342,7 @@ def fixture_repo(tmp_path):
                         ],
                     }
                 },
-                "local_skills": [{"name": "mine", "groups": [], "note": "local"}],
+                "local": [{"name": "mine", "groups": [], "note": "local"}],
             },
             indent=2,
         )
@@ -403,7 +414,7 @@ def test_e7_a_current_skill_is_not_rewritten(at, upstream_files, capsys):
 def test_e4_update_stamps_only_what_it_synced(at, upstream_files, capsys):
     pull.run(_Args("update"), fetcher=fetcher_for(upstream_files))
     after = json.loads((at / "skill-registry.json").read_text())
-    entries = {e["upstream_path"]: e for e in after["repos"]["owner/one"]["skills"]}
+    entries = {e["upstream_path"]: e for e in after["upstream"]["owner/one"]["skills"]}
     assert entries["skills/alpha"]["updated_at"] != "2020-01-01T00:00:00Z"
     assert entries["skills/beta"]["updated_at"] == "2020-01-01T00:00:00Z"
 
@@ -448,8 +459,8 @@ def test_e6_one_failing_repo_still_syncs_the_others(tmp_path, monkeypatch, capsy
     (claude / "skill-registry.json").write_text(
         json.dumps(
             {
-                "version": 2,
-                "repos": {
+                "version": 3,
+                "upstream": {
                     "owner/good": {"branch": "main", "skills": [{"upstream_path": "skills/alpha", "groups": []}]},
                     "owner/bad": {"branch": "main", "skills": [{"upstream_path": "skills/gamma", "groups": []}]},
                 },
