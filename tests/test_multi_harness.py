@@ -132,6 +132,20 @@ def test_init_and_add_create_independent_native_links(setup):
     )
 
 
+def test_project_add_refuses_registry_global_skill_without_changing_project(setup, capsys):
+    home, project, catalog = setup
+    assert initialize(catalog) == errors.OK
+    original = state.path_for(project).read_bytes()
+    capsys.readouterr()
+
+    assert cli.main(["add", "global-tool", "--type", "skill"]) == errors.WRONG_SCOPE
+    assert "--global" in capsys.readouterr().err
+    assert state.path_for(project).read_bytes() == original
+    for harness_id in ("claude", "pi"):
+        assert not harnesses.skill_path(harness_id, "global-tool", home, project).is_symlink()
+        assert harnesses.skill_path(harness_id, "global-tool", home).is_symlink()
+
+
 def test_collision_in_one_harness_prevents_every_write(setup):
     home, project, catalog = setup
     assert initialize(catalog) == errors.OK
