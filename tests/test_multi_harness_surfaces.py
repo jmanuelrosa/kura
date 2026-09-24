@@ -33,7 +33,7 @@ def catalog_at(path, entries, present=None, declared=None):
         (source / "SKILL.md").write_text(
             f"---\nname: {frontmatter_name}\ndescription: {name}\n---\n\n# {name}\n"
         )
-    (path / "skill-registry.json").write_text(json.dumps({"local_skills": entries}))
+    (path / "skill-registry.json").write_text(json.dumps({"local": entries}))
     return path
 
 

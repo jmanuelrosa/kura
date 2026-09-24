@@ -12,10 +12,10 @@
     },
     "version": {
       "type": "integer",
-      "default": 2,
-      "description": "Registry format version. Kura does not read it; existing registries carry 2."
+      "default": 3,
+      "description": "Registry format version. Kura does not read it; registries using upstream and local carry 3."
     },
-    "repos": {
+    "upstream": {
       "type": ["object", "null"],
       "description": "Upstream repositories, keyed by GitHub owner/repo. Only skills listed here are targets for `kura update` and `kura outdated`.",
       "propertyNames": {
@@ -25,7 +25,7 @@
         "$ref": "#/$defs/repo"
       }
     },
-    "local_skills": {
+    "local": {
       "type": ["array", "null"],
       "description": "Skills authored in the catalog itself. They have no upstream, so `kura update` leaves them alone.",
       "items": {

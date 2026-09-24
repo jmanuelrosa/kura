@@ -118,26 +118,28 @@ def _read_json(path):
 
 
 def registry_entries(registry, collection):
-    """Yield (name, entry, repo_key) across a registry's repos and its local list.
+    """Yield (name, entry, repo_key) across upstream and local entries.
 
     repo_key is None for local entries, which is what distinguishes a skill with
     an upstream from one authored here.
     """
-    repos = registry.get("repos") or {}
-    local = registry.get(f"local_{collection}") or []
-    if not isinstance(repos, dict) or not isinstance(local, list):
-        raise ValueError("registry repos must be an object and local entries must be a list")
-    for repo_key, repo in repos.items():
+    if "repos" in registry or "local_skills" in registry:
+        raise ValueError("registry uses retired repos or local_skills keys; use upstream and local")
+    upstream = registry.get("upstream") or {}
+    local = registry.get("local") or []
+    if not isinstance(upstream, dict) or not isinstance(local, list):
+        raise ValueError("registry upstream must be an object and local must be a list")
+    for repo_key, repo in upstream.items():
         if not isinstance(repo, dict) or not isinstance(repo.get(collection) or [], list):
-            raise ValueError(f"registry repo {repo_key!r} has malformed {collection}")
+            raise ValueError(f"registry upstream {repo_key!r} has malformed {collection}")
         for entry in repo.get(collection) or []:
             if not isinstance(entry, dict):
-                raise ValueError(f"registry repo {repo_key!r} has a non-object entry")
+                raise ValueError(f"registry upstream {repo_key!r} has a non-object entry")
             name = _validate_registry_name(entry_name(entry, repo_key))
             yield name, entry, repo_key
     for entry in local:
         if not isinstance(entry, dict) or not isinstance(entry.get("name"), str):
-            raise ValueError(f"registry local_{collection} has a malformed entry")
+            raise ValueError("registry local has a malformed entry")
         name = _validate_registry_name(entry["name"])
         yield name, entry, None
 
@@ -181,7 +183,7 @@ def _from_registry(claude, kind):
         return {}
     registry = _read_json(path)
     collection = COLLECTION[kind]
-    repos = registry.get("repos") or {}
+    upstream = registry.get("upstream") or {}
     out = {}
     for name, entry, repo_key in registry_entries(registry, collection):
         source_root = claude / collection
@@ -207,7 +209,7 @@ def _from_registry(claude, kind):
             origin=repo_key or "local",
             upstream_repo=repo_key,
             upstream_path=entry.get("upstream_path") if repo_key else None,
-            upstream_branch=(repos.get(repo_key) or {}).get("branch") if repo_key else None,
+            upstream_branch=upstream[repo_key].get("branch") if repo_key else None,
             updated_at=entry.get("updated_at"),
             metadata=True,
             catalog_error=containment or mismatch,
