@@ -22,7 +22,7 @@ def _catalog(path, names, entries=None):
     for name in names:
         _skill(path, name)
     if entries is not None:
-        (path / "skill-registry.json").write_text(json.dumps({"local_skills": entries}))
+        (path / "skill-registry.json").write_text(json.dumps({"local": entries}))
     return path
 
 

@@ -22,7 +22,9 @@ def stamp_entry(path, repo, upstream_path, timestamp, collection="skills"):
     Returns True if an entry was found and written.
     """
     data = json.loads(path.read_text())
-    entries = ((data.get("repos") or {}).get(repo) or {}).get(collection) or []
+    if "repos" in data or "local_skills" in data:
+        raise ValueError("registry uses retired repos or local_skills keys; use upstream and local")
+    entries = ((data.get("upstream") or {}).get(repo) or {}).get(collection) or []
     found = False
     for entry in entries:
         if _matches(entry, upstream_path):

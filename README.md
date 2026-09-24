@@ -95,6 +95,8 @@ A registry-free skill is project-scoped by default and has no groups, dependenci
 
 When metadata exists, the registry name, directory name, and `SKILL.md` frontmatter name must agree.
 A mismatch blocks installation.
+Registry metadata separates `upstream` (GitHub repositories whose skills can be updated) from `local` (catalog-authored skills without an upstream).
+The old `repos` and `local_skills` keys are rejected; rename them when migrating a catalog.
 Registry metadata may add:
 
 - `groups`, including the durable `global` policy
@@ -108,8 +110,8 @@ A registry naming it is completed and validated while it is edited:
 ```json
 {
   "$schema": "https://raw.githubusercontent.com/jmanuelrosa/kura/main/docs/schemas/skill-registry.schema.json",
-  "version": 2,
-  "local_skills": [{ "name": "review", "groups": ["global"] }]
+  "version": 3,
+  "local": [{ "name": "review", "groups": ["global"] }]
 }
 ```
 

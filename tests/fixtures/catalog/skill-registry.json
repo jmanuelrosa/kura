@@ -1,6 +1,6 @@
 {
   "$schema": "../../../docs/schemas/skill-registry.schema.json",
-  "repos": {
+  "upstream": {
     "fixture-org/fixture-skills": {
       "branch": "main",
       "skills": [
@@ -14,7 +14,7 @@
       ]
     }
   },
-  "local_skills": [
+  "local": [
     {
       "name": "coderabbit",
       "groups": [

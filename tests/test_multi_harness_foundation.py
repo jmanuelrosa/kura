@@ -27,10 +27,10 @@ def write_skill(root, name, frontmatter=None):
 )
 def test_registry_names_must_be_one_safe_path_component(tmp_path, location, name):
     if location == "local":
-        registry = {"local_skills": [{"name": name}]}
+        registry = {"local": [{"name": name}]}
     else:
         registry = {
-            "repos": {
+            "upstream": {
                 "owner/repo": {
                     "skills": [{"name": name, "upstream_path": "skills/review"}]
                 }
@@ -42,11 +42,19 @@ def test_registry_names_must_be_one_safe_path_component(tmp_path, location, name
         cat.build_catalog(root)
 
 
+@pytest.mark.parametrize("retired_key", ["repos", "local_skills"])
+def test_registry_rejects_retired_keys_even_with_new_sections(tmp_path, retired_key):
+    root = catalog_with_registry(tmp_path, {"upstream": {}, "local": [], retired_key: {}})
+
+    with pytest.raises(ValueError, match="retired"):
+        cat.build_catalog(root)
+
+
 def test_registry_rejects_an_unsafe_name_derived_from_upstream_path(tmp_path):
     root = catalog_with_registry(
         tmp_path,
         {
-            "repos": {
+            "upstream": {
                 "owner/repo": {
                     "skills": [{"upstream_path": "skills/.."}]
                 }
@@ -61,7 +69,7 @@ def test_registry_rejects_an_unsafe_name_derived_from_upstream_path(tmp_path):
 def test_metadata_only_source_is_checked_for_catalog_containment(tmp_path):
     root = catalog_with_registry(
         tmp_path,
-        {"local_skills": [{"name": "review"}]},
+        {"local": [{"name": "review"}]},
     )
     source = root / "skills" / "review"
     source.symlink_to(tmp_path / "outside" / "review", target_is_directory=True)
@@ -87,7 +95,7 @@ def test_missing_metadata_sources_do_not_hide_deeper_dependency_drift(tmp_path):
     root = catalog_with_registry(
         tmp_path,
         {
-            "local_skills": [
+            "local": [
                 {"name": "root", "dependencies": ["middle"]},
                 {"name": "middle", "dependencies": ["leaf"]},
                 {"name": "leaf", "dependencies": ["root"]},
@@ -107,7 +115,7 @@ def test_missing_metadata_sources_do_not_hide_deeper_dependency_drift(tmp_path):
 def test_catalog_name_reader_accepts_a_quoted_yaml_key(tmp_path):
     root = catalog_with_registry(
         tmp_path,
-        {"local_skills": [{"name": "review"}]},
+        {"local": [{"name": "review"}]},
     )
     write_skill(root, "review", '"name": review')
 
