@@ -40,7 +40,9 @@ Kura never searches Git or parent directories to find one.
 `$HOME` is not a project because its native harness directories are global directories.
 
 A selected harness receives the project's complete managed skill set.
-A globally enabled harness receives the complete registry-global skill set.
+A globally enabled harness receives the complete registry-global skill set after `sync` or a machine configuration change.
+When a project declares a globally tagged skill and its global link is missing, the selected harness receives a project-local link instead; `init` does not sync global skills.
+After linking such a fallback, Kura warns which globally enabled harnesses lack the links and suggests `kura sync` as an optional way to install them globally.
 Executable detection affects initialization suggestions and trust eligibility, but it never suppresses skill links.
 
 | Harness | Project skill root | Global skill root |
@@ -157,6 +159,7 @@ kura init [--harness {claude,pi}] [--yes] [--dry-run] [--verbose]
 `init` is the first project mutation and refuses in `$HOME`.
 It requires machine configuration to already exist and directs the user to `kura config` when it does not.
 Repeated `--harness` values select the complete project harness set.
+Missing global links for declared skills are filled in the project rather than requiring `sync`; conflicting global paths still refuse.
 `--yes` accepts the complete safe plan.
 `--dry-run` writes nothing and does not require `--yes`.
 `--verbose` includes every migration and native-view decision.

@@ -57,6 +57,7 @@ def _project(args, machine, catalog_root, catalog):
     common.refuse_plan(plan, "remove the selected skills")
     common.apply_plan(plan, [common.manifest_action(project, declaration, manifest)])
     common.report_actions(plan.ordered_actions())
+    common.warn_global_fallbacks(plan)
     for name in sorted(names):
         ui.ok(f"Removed '{name}' from {ui.path(state.path_for(project))}")
     if args.no_cascade:

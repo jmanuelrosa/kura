@@ -72,6 +72,7 @@ def _project(args, machine, catalog_root, catalog, names, elsewhere, project, ma
         raise common.Refusal(errors.ALREADY, f"'{names[0]}' is already configured and current.")
     common.apply_plan(plan, [common.manifest_action(project, declaration, manifest)])
     common.report_actions(plan.ordered_actions())
+    common.warn_global_fallbacks(plan)
     for name in sorted(additions):
         ui.ok(f"Added '{name}' to {ui.path(state.path_for(project))}")
     if elsewhere:

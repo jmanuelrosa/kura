@@ -25,6 +25,8 @@ def run(args):
         if not args.dry_run:
             common.apply_plan(plan)
         common.report_actions(plan.ordered_actions(), dry_run=args.dry_run)
+        if not args.dry_run:
+            common.warn_global_fallbacks(plan)
         if plan.missing:
             for name, harness_id, source in plan.missing:
                 ui.warn(f"'{name}' remains declared but is missing from the catalog.")

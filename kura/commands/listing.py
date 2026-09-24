@@ -72,16 +72,24 @@ def rows(catalog, catalog_root, machine, home, project, manifest, group=None):
         is_configured = art.name in configured
         view_map = {}
         if is_configured:
-            harness_ids = selected
-            view_project = None if is_global else project
-            view_map = views.view_states(
-                catalog_root,
-                catalog,
-                home,
-                view_project,
-                harness_ids,
-                [art.name],
+            project_views = views.view_states(
+                catalog_root, catalog, home, project, selected, [art.name]
             )[art.name]
+            if is_global:
+                global_views = views.view_states(
+                    catalog_root, catalog, home, None, selected, [art.name]
+                )[art.name]
+                view_map = {
+                    harness_id: (
+                        project_views[harness_id]
+                        if harness_id not in global_harnesses
+                        or global_views[harness_id]["state"] == views.MISSING
+                        else global_views[harness_id]
+                    )
+                    for harness_id in selected
+                }
+            else:
+                view_map = project_views
         elif is_global:
             view_map = views.view_states(
                 catalog_root,

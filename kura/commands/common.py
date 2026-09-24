@@ -181,6 +181,26 @@ def report_actions(actions, dry_run=False):
         ui.ok(f"{profile.display_name}: {verbs[action.operation]} {subject} at {ui.path(action.path)}")
 
 
+def warn_global_fallbacks(plan, project=None, stream=None):
+    linked = {
+        (action.harness, action.skill)
+        for action in plan.actions
+        if action.operation in ("create", "relink")
+    }
+    affected = [
+        harnesses.get(harness_id).display_name
+        for harness_id, names in sorted(plan.global_fallbacks.items())
+        if any((harness_id, name) in linked for name in names)
+    ]
+    if affected:
+        prefix = f"{ui.path(project)}: " if project is not None else ""
+        ui.warn(
+            f"{prefix}Globally tagged skills were linked in this project because global links "
+            f"are missing for {', '.join(affected)}. Run `kura sync` to install them globally.",
+            stream=stream,
+        )
+
+
 def run_guarded(callback):
     try:
         return callback()

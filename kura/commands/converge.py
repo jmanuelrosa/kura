@@ -89,6 +89,10 @@ def run(args):
             common.apply_plan(combined)
         for project, manifest, plan in planned:
             _report(project, manifest, plan, args, stream)
+            if not args.dry_run:
+                common.warn_global_fallbacks(
+                    plan, project if args.all else None, stream if args.quiet else None
+                )
 
         if not args.quiet:
             word = "project" if len(found) == 1 else "projects"

@@ -101,7 +101,7 @@ The old `.claude/kura.json` recorded historical `direct` and `dep-of:` provenanc
 If both manifests exist, incompatible direct or legacy meaning refuses with a semantic difference.
 
 A direct skill that becomes registry-global remains direct intent in the manifest.
-Its project links become redundant only after every selected harness has a current global link.
+A current global link makes its project link redundant for that harness, while a missing global link leaves the project link in place.
 If global policy disappears later, project convergence recreates its project links from unchanged intent.
 
 ## Desired state
@@ -111,14 +111,13 @@ Let `closure(direct)` be the recursive dependency closure from current metadata.
 Let `global` be the recursive closure of metadata-backed global roots.
 
 The project intent is `closure(direct)`.
-The project native view is `closure(direct) - global`.
+For each selected harness, the project native view is `closure(direct)` minus skills with a current global link in that enabled harness.
 The durable global native view is `global` in every globally enabled harness.
 Temporary global additions may exist until the next `sync`.
 
-A project operation that needs a global skill preflights two facts for each selected project harness:
-
-1. The harness is globally enabled in machine configuration.
-2. Its expected global link is current.
+A missing global link does not force a machine-wide sync: the project gets its own link for the skill until that harness has a current global link.
+A harness excluded from global policy also uses its project view.
+A stale, foreign, or real path at an enabled harness's expected global destination still blocks the project transaction rather than hiding a conflict behind a local link.
 
 A missing direct skill already present in a manifest preserves intent and yields `DRIFT`.
 A missing dependency blocks the transaction because there is no complete desired state to apply.
