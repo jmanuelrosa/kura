@@ -1,75 +1,9 @@
 {
-  "22446eb7f3e35ebd233669311c543de5_0": {
-    "author": "Jose Manuel Rosa Moncayo",
-    "comment": "The temporary file inherits the existing Claude config mode or uses 0600 for a new file.",
-    "false_positive": true,
-    "ignored_at": "2026-09-11T12:03:53Z"
-  },
   "06dc73e946b9b29a5dc5b75abc979aa7_0": {
     "author": "Jose Manuel Rosa Moncayo",
     "comment": "The command passes the fixed Pi trust store path derived from HOME.",
     "false_positive": true,
     "ignored_at": "2026-09-11T12:03:53Z"
-  },
-  "165d4566b6c7abbfba6aee8458dc2110_0": {
-    "author": "Jose Manuel Rosa Moncayo",
-    "comment": "Cleanup is limited to fixed staging and retired sibling names under the selected artifact destination.",
-    "false_positive": true,
-    "ignored_at": "2026-09-11T12:03:53Z"
-  },
-  "165d4566b6c7abbfba6aee8458dc2110_1": {
-    "author": "Jose Manuel Rosa Moncayo",
-    "comment": "Final cleanup uses the same fixed staging and retired paths created by this function.",
-    "false_positive": true,
-    "ignored_at": "2026-09-11T12:03:53Z"
-  },
-  "eeedc20a31e0bbfb820b860696796e7a_0": {
-    "author": "Jose Manuel Rosa Moncayo",
-    "comment": "The marker is the .git entry directly beneath the selected project directory.",
-    "false_positive": true,
-    "ignored_at": "2026-09-11T12:03:53Z"
-  },
-  "eeedc20a31e0bbfb820b860696796e7a_1": {
-    "author": "Jose Manuel Rosa Moncayo",
-    "comment": "The commondir pointer is read to reproduce Git worktree resolution and its shape is validated before use.",
-    "false_positive": true,
-    "ignored_at": "2026-09-11T12:03:53Z"
-  },
-  "eeedc20a31e0bbfb820b860696796e7a_2": {
-    "author": "Jose Manuel Rosa Moncayo",
-    "comment": "The command passes the fixed Claude config path derived from HOME.",
-    "false_positive": true,
-    "ignored_at": "2026-09-11T12:03:53Z"
-  },
-  "437b72de127a562d05b72657795daa99_0": {
-    "author": "Jose Manuel Rosa Moncayo",
-    "comment": "The machine configuration temporary file uses 0600 for new files or preserves the existing user-owned file mode.",
-    "false_positive": true,
-    "ignored_at": "2026-09-14T15:35:50Z"
-  },
-  "e315af44cd7a8470e15b7bbbe25cdef1_0": {
-    "author": "Jose Manuel Rosa Moncayo",
-    "comment": "The project manifest temporary file uses 0644 for new version-controlled state or preserves its existing mode.",
-    "false_positive": true,
-    "ignored_at": "2026-09-14T15:35:50Z"
-  },
-  "7d6c40a7c36e88764a69734448a38be6_0": {
-    "author": "Jose Manuel Rosa Moncayo",
-    "comment": "Transaction writes use the fixed action mode or preserve the snapshotted mode of an existing user-owned file.",
-    "false_positive": true,
-    "ignored_at": "2026-09-14T15:35:50Z"
-  },
-  "711475736fd6b2bef8a942e4d0cace69_0": {
-    "author": "Jose Manuel Rosa Moncayo",
-    "comment": "Project skill roots combine the selected project with fixed path components from a validated built-in harness profile.",
-    "false_positive": true,
-    "ignored_at": "2026-09-14T15:35:50Z"
-  },
-  "711475736fd6b2bef8a942e4d0cace69_1": {
-    "author": "Jose Manuel Rosa Moncayo",
-    "comment": "Global skill roots combine HOME with fixed path components from a validated built-in harness profile.",
-    "false_positive": true,
-    "ignored_at": "2026-09-14T15:35:50Z"
   },
   "06dc73e946b9b29a5dc5b75abc979aa7_1": {
     "author": "Jose Manuel Rosa Moncayo",
@@ -92,6 +26,30 @@
   "06dc73e946b9b29a5dc5b75abc979aa7_4": {
     "author": "Jose Manuel Rosa Moncayo",
     "comment": "Cleanup removes only the owned lock directory beside the Pi trust store after identity verification.",
+    "false_positive": true,
+    "ignored_at": "2026-09-14T15:35:50Z"
+  },
+  "165d4566b6c7abbfba6aee8458dc2110_0": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "Cleanup is limited to fixed staging and retired sibling names under the selected artifact destination.",
+    "false_positive": true,
+    "ignored_at": "2026-09-11T12:03:53Z"
+  },
+  "165d4566b6c7abbfba6aee8458dc2110_1": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "Final cleanup uses the same fixed staging and retired paths created by this function.",
+    "false_positive": true,
+    "ignored_at": "2026-09-11T12:03:53Z"
+  },
+  "22446eb7f3e35ebd233669311c543de5_0": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "The temporary file inherits the existing Claude config mode or uses 0600 for a new file.",
+    "false_positive": true,
+    "ignored_at": "2026-09-11T12:03:53Z"
+  },
+  "437b72de127a562d05b72657795daa99_0": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "The machine configuration temporary file uses 0600 for new files or preserves the existing user-owned file mode.",
     "false_positive": true,
     "ignored_at": "2026-09-14T15:35:50Z"
   },
@@ -130,5 +88,59 @@
     "comment": "Delete-file actions remove only a snapshotted Kura state file after exact-byte preflight.",
     "false_positive": true,
     "ignored_at": "2026-09-14T15:35:50Z"
+  },
+  "711475736fd6b2bef8a942e4d0cace69_0": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "Project skill roots combine the selected project with fixed path components from a validated built-in harness profile.",
+    "false_positive": true,
+    "ignored_at": "2026-09-14T15:35:50Z"
+  },
+  "711475736fd6b2bef8a942e4d0cace69_1": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "Global skill roots combine HOME with fixed path components from a validated built-in harness profile.",
+    "false_positive": true,
+    "ignored_at": "2026-09-14T15:35:50Z"
+  },
+  "711475736fd6b2bef8a942e4d0cace69_2": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "Path components come from the fixed PROFILES mapping; harness IDs are validated and these components are not user-controlled.",
+    "false_positive": true,
+    "ignored_at": "2026-09-25T08:49:39Z"
+  },
+  "711475736fd6b2bef8a942e4d0cace69_3": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "Path components come from the fixed PROFILES mapping; harness IDs are validated and these components are not user-controlled.",
+    "false_positive": true,
+    "ignored_at": "2026-09-25T08:49:40Z"
+  },
+  "7d6c40a7c36e88764a69734448a38be6_0": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "Transaction writes use the fixed action mode or preserve the snapshotted mode of an existing user-owned file.",
+    "false_positive": true,
+    "ignored_at": "2026-09-14T15:35:50Z"
+  },
+  "e315af44cd7a8470e15b7bbbe25cdef1_0": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "The project manifest temporary file uses 0644 for new version-controlled state or preserves its existing mode.",
+    "false_positive": true,
+    "ignored_at": "2026-09-14T15:35:50Z"
+  },
+  "eeedc20a31e0bbfb820b860696796e7a_0": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "The marker is the .git entry directly beneath the selected project directory.",
+    "false_positive": true,
+    "ignored_at": "2026-09-11T12:03:53Z"
+  },
+  "eeedc20a31e0bbfb820b860696796e7a_1": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "The commondir pointer is read to reproduce Git worktree resolution and its shape is validated before use.",
+    "false_positive": true,
+    "ignored_at": "2026-09-11T12:03:53Z"
+  },
+  "eeedc20a31e0bbfb820b860696796e7a_2": {
+    "author": "Jose Manuel Rosa Moncayo",
+    "comment": "The command passes the fixed Claude config path derived from HOME.",
+    "false_positive": true,
+    "ignored_at": "2026-09-11T12:03:53Z"
   }
 }
