@@ -1,5 +1,6 @@
 """Converge registry-global skills across globally enabled harnesses."""
 
+from .. import catalog as cat
 from .. import errors, paths, ui, views
 from . import common
 
@@ -13,6 +14,8 @@ def run(args):
             catalog_root,
             paths.home(),
             machine.global_harnesses,
+            desired_names=(cat.global_resolution(catalog).names if args.type == cat.SKILL else None),
+            machine_config=machine,
         )
         common.refuse_plan(plan, "sync global skill views")
         if plan.missing:

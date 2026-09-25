@@ -20,6 +20,7 @@ def run(args):
             machine.global_harnesses,
             delete=False,
             relink=False,
+            machine_config=machine,
         )
         common.refuse_plan(plan, "restore this project")
         if not args.dry_run:

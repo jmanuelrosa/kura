@@ -25,6 +25,7 @@ ORDER = {
     "executable-absent": 6,
     "split-instructions": 7,
     "legacy-state": 8,
+    "pi-agent-discovery": 9,
 }
 
 
@@ -87,7 +88,7 @@ def _views(machine, root, catalog, home, project, manifest, findings):
     if root is None:
         return
     if machine is not None:
-        global_plan = views.global_plan(catalog, root, home, machine.global_harnesses)
+        global_plan = views.global_plan(catalog, root, home, machine.global_harnesses, machine_config=machine)
         findings.extend(checks.view_plan(global_plan, "global views"))
     if manifest is None:
         return
@@ -99,6 +100,7 @@ def _views(machine, root, catalog, home, project, manifest, findings):
         manifest,
         manifest,
         machine.global_harnesses if machine is not None else (),
+        machine_config=machine,
     )
     findings.extend(checks.view_plan(plan, "project views"))
 
@@ -122,6 +124,7 @@ def _notes(home, project, manifest, findings):
     findings.extend(checks.executable_notes(manifest))
     findings.extend(checks.instruction_notes(project))
     findings.extend(checks.legacy_notes(manifest))
+    findings.extend(checks.pi_agent_notes(manifest))
 
 
 def report(findings):

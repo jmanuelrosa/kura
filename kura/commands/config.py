@@ -93,6 +93,7 @@ def run(args):
             selected,
             previous_harness_ids=previous,
             protect_empty_selected=bool(removed_harnesses),
+            machine_config=updated,
         )
         common.refuse_plan(projection, "change machine configuration")
         if projection.missing:

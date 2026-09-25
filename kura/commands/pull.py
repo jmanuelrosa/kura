@@ -198,7 +198,7 @@ def run(args, fetcher=None):
         return fail(
             errors.USAGE,
             f"only skills have upstreams, so `{args.command}` does not apply to "
-            f"{args.type}s. Agents and plugins are authored in this repo.",
+            f"{args.type}s. Only skills currently carry upstream update metadata.",
         )
 
     if write and not injected_fetcher:

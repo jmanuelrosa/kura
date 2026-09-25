@@ -20,6 +20,7 @@ def _plan(machine, catalog_root, catalog, project):
         manifest,
         manifest,
         machine.global_harnesses,
+        machine_config=machine,
     )
     problems = list(plan.blocked)
     problems.extend(f"'{name}' is declared but missing from the catalog" for name, _, _ in plan.missing)

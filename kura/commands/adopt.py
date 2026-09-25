@@ -64,6 +64,12 @@ def infer_direct(catalog, installed, covered=()):
 
 def run(args):
     def operation():
+        if getattr(args, "type", None) not in (None, cat.SKILL):
+            raise common.Refusal(
+                errors.USAGE,
+                "`kura adopt` currently adopts project skills only. "
+                "To use an agent, add a standalone root agent with `kura add NAME --type agent`.",
+            )
         machine, catalog_root = common.machine()
         catalog = common.loaded_catalog(catalog_root)
         project = common.project_root()
@@ -83,6 +89,7 @@ def run(args):
             declaration,
             machine.global_harnesses,
             delete=False,
+            machine_config=machine,
         )
         common.refuse_plan(plan, "adopt project skills")
         ui.title("📋 Adopt as direct")
