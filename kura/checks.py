@@ -44,23 +44,59 @@ def catalog_health(catalog):
                         f"dependency '{dependency}' is not in the catalog",
                     )
                 )
+    for art in cat.of_type(catalog, cat.AGENT):
+        if art.catalog_error:
+            findings.append(
+                Finding("catalog-name", PROBLEM, f"agent '{art.name}'", art.catalog_error, cat.AGENT)
+            )
+        if art.source is not None and not art.source.is_file():
+            findings.append(
+                Finding("missing-source", PROBLEM, f"agent '{art.name}'", f"missing from {art.source}", cat.AGENT)
+            )
+        for dependency in art.dependencies:
+            if dependency not in skill_map:
+                findings.append(
+                    Finding(
+                        "missing-dependency",
+                        PROBLEM,
+                        f"agent '{art.name}'",
+                        f"dependency '{dependency}' is not in the catalog",
+                        cat.AGENT,
+                    )
+                )
+    for bundle in cat.of_type(catalog, cat.BUNDLE):
+        if bundle.catalog_error:
+            findings.append(
+                Finding("catalog-name", PROBLEM, f"bundle '{bundle.name}'", bundle.catalog_error, cat.BUNDLE)
+            )
     return findings
 
 
+def _missing_finding(name, harness_id, source):
+    kind = cat.AGENT if source is not None and str(source).endswith(cat.SUFFIX[cat.AGENT]) else cat.SKILL
+    return Finding(
+        "missing-intent",
+        PROBLEM,
+        f"{kind} '{name}'",
+        "declared but missing from the catalog",
+        kind,
+    )
+
+
+def _action_kind(action):
+    if action.target is not None and action.target.is_file():
+        return cat.AGENT
+    if str(action.path).endswith(cat.SUFFIX[cat.AGENT]):
+        return cat.AGENT
+    return cat.SKILL
+
+
 def view_plan(plan, subject):
-    findings = [
-        Finding(
-            "missing-intent",
-            PROBLEM,
-            f"skill '{name}'",
-            "declared but missing from the catalog",
-        )
-        for name, _, _ in plan.missing
-    ]
+    findings = [_missing_finding(name, harness_id, source) for name, harness_id, source in plan.missing]
     for detail in plan.blocked:
         if "requires missing dependency" in detail:
             check = "missing-dependency"
-        elif "invalid catalog metadata" in detail:
+        elif "invalid catalog metadata" in detail or "has invalid catalog metadata" in detail:
             check = "catalog-name"
         elif "global link" in detail and "not current" in detail:
             check = "native-view-drift"
@@ -73,6 +109,7 @@ def view_plan(plan, subject):
             PROBLEM,
             f"{harnesses.get(action.harness).display_name} view",
             f"{action.skill}: {action.operation} required at {action.path}",
+            _action_kind(action),
         )
         for action in plan.actions
         if action.operation in ("create", "relink", "delete")
@@ -108,6 +145,20 @@ def instruction_notes(project):
             "instructions",
             "AGENTS.md and CLAUDE.md are split; Claude does not import AGENTS.md",
             None,
+        )
+    ]
+
+
+def pi_agent_notes(manifest):
+    if "pi" not in manifest.harnesses or not (manifest.agents or manifest.bundles):
+        return []
+    return [
+        Finding(
+            "pi-agent-discovery",
+            NOTE,
+            "Pi agent discovery",
+            "project agents are selected; verify a Markdown-compatible Pi extension reads the configured project path",
+            cat.AGENT,
         )
     ]
 

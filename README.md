@@ -1,8 +1,8 @@
 # kura
 
-Kura manages one declared set of coding-agent skills across the native skill directories of the harnesses a user selects.
+Kura manages one declared set of coding-agent skills and portable agent bundles across the native directories of the harnesses a user selects.
 The first supported harnesses are Claude Code and Pi.
-Skills are linked directly from a user-controlled catalog, so source edits take effect without reinstalling.
+Skills and agents are linked directly from a user-controlled catalog, so source edits take effect without reinstalling.
 Kura is a stdlib-only Python CLI.
 
 ## Installation
@@ -39,19 +39,21 @@ A project is the exact current directory.
 Kura never searches Git or parent directories to find one.
 `$HOME` is not a project because its native harness directories are global directories.
 
-A selected harness receives the project's complete managed skill set.
-A globally enabled harness receives the complete registry-global skill set after `sync` or a machine configuration change.
+A selected harness receives the project's complete managed skill set and selected standalone or bundled agents.
+A globally enabled harness receives the complete registry-global skill and agent set after `sync` or a machine configuration change.
 When a project declares a globally tagged skill and its global link is missing, the selected harness receives a project-local link instead; `init` does not sync global skills.
 After linking such a fallback, Kura warns which globally enabled harnesses lack the links and suggests `kura sync` as an optional way to install them globally.
 Executable detection affects initialization suggestions and trust eligibility, but it never suppresses skill links.
 
-| Harness | Project skill root | Global skill root |
-|---|---|---|
-| Claude Code | `.claude/skills` | `~/.claude/skills` |
-| Pi | `.agents/skills` | `~/.agents/skills` |
+| Harness | Project skill root | Global skill root | Project agent root | Global agent root |
+|---|---|---|---|---|
+| Claude Code | `.claude/skills` | `~/.claude/skills` | `.claude/agents` | `~/.claude/agents` |
+| Pi | `.agents/skills` | `~/.agents/skills` | configured `pi.agents.project` | configured `pi.agents.global` |
 
-Each skill gets an independent native link.
+Each skill or agent gets an independent native link.
 Pi never points through Claude Code's directory.
+Pi agent roots are only paths for a Markdown-compatible subagent extension to read.
+Kura does not install that extension.
 
 ## Machine configuration
 
@@ -60,11 +62,18 @@ Kura stores machine configuration at `${XDG_CONFIG_HOME:-~/.config}/kura/config.
 ```json
 {
   "schemaVersion": 1,
-  "globalHarnesses": ["claude", "pi"]
+  "globalHarnesses": ["claude", "pi"],
+  "pi": {
+    "agents": {
+      "global": "~/.pi/agent/agents",
+      "project": ".pi/agents"
+    }
+  }
 }
 ```
 
 `globalHarnesses` must be sorted, unique, non-empty, and contain only `claude` or `pi`.
+`pi.agents.global` and `pi.agents.project` are optional until a global or project Pi agent view is needed.
 The catalog path is not machine configuration and cannot be changed.
 
 ## Project manifest
@@ -74,15 +83,18 @@ The file is intended for version control.
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "harnesses": ["claude", "pi"],
-  "skills": ["review", "tdd"]
+  "skills": ["review", "tdd"],
+  "agents": ["architect"],
+  "bundles": ["backend"]
 }
 ```
 
-Only directly requested skills are stored.
-Dependencies are derived recursively from current optional registry metadata.
-Unsupported migrated agents and plugins may be preserved under `legacy` and are not managed in this phase.
+Only directly requested skills, standalone agents, and bundles are stored.
+Dependencies are derived recursively from current optional registry metadata and bundle requirements.
+Version 1 manifests are read as skill-only manifests and upgrade to version 2 when an agent or bundle selection is written after a successful project transaction.
+Unsupported migrated plugins may be preserved under `legacy` and are not managed.
 A malformed or newer manifest is never treated as an empty declaration.
 
 ## Catalog
@@ -91,13 +103,17 @@ Kura always reads the catalog at `~/.config/kura/catalog`.
 There is no flag, environment variable, fallback, or saved setting that changes this path.
 An older machine configuration's `catalog` field is ignored and removed when Kura rewrites the file.
 Links to another catalog location are foreign and must be removed manually before Kura can recreate them from the fixed catalog.
-The minimum catalog is a directory containing `skills/<name>/SKILL.md`.
-`skill-registry.json` is optional metadata.
-A registry-free skill is project-scoped by default and has no groups, dependencies, durable global policy, or upstream source.
+The minimum catalog has a `skills/` directory, which may be empty; each discovered skill has `skills/<name>/SKILL.md`.
+Standalone agents live in `agents/<name>.md`.
+A bundle lives in `bundles/<name>/`, must contain `bundle.json`, and owns colocated `agents/*.md` and `skills/*/SKILL.md` sources.
+`bundles/backend/bundle.json` may be `{}` for a self-contained bundle.
+`skill-registry.json` and `agent-registry.json` are optional metadata.
+A registry-free skill or agent is project-scoped by default and has no groups, dependencies, durable global policy, or upstream source.
 
 When metadata exists, the registry name, directory name, and `SKILL.md` frontmatter name must agree.
 A mismatch blocks installation.
-Registry metadata separates `upstream` (GitHub repositories whose skills can be updated) from `local` (catalog-authored skills without an upstream).
+Registry metadata separates `upstream` (GitHub repositories whose skills can be updated) from `local` (catalog-authored skills or agents without an upstream).
+`local` entries may carry groups such as `global`.
 The old `repos` and `local_skills` keys are rejected; rename them when migrating a catalog.
 Registry metadata may add:
 
@@ -148,7 +164,10 @@ A collision in any harness prevents every write.
 
 ## Commands
 
-Artifact commands use `--type skill` because skills are the only managed artifact type in this phase.
+Artifact commands require an explicit type where the type is meaningful.
+Supported project artifact types are `skill`, `agent`, and `bundle`.
+`plugin` remains parseable only to refuse with migration guidance.
+If agents were previously deployed by dotfiles, Ansible, or Claude Code plugins, remove or hand off those links manually before Kura can own the same native path.
 
 ### `init`
 
@@ -189,7 +208,7 @@ Once machine configuration exists, repeated `--harness` values replace the compl
 ### `list`
 
 ```text
-kura list --type skill [--group [TAG]] [--json]
+kura list --type {skill,agent,bundle} [--group [TAG]] [--json]
 ```
 
 Without a project manifest, `list` shows catalog and global state and sends an initialization notice to stderr.
@@ -199,8 +218,10 @@ Bare `--group` groups the human report by metadata tag.
 `--group TAG` filters by one opaque tag.
 `--json` emits only JSON on stdout.
 
-Existing row fields remain: `name`, `state`, `installed`, `global`, `groups`, `dependencies`, `reason`, `parent`, and `global_for`.
-The additive `views` object is keyed by harness ID.
+Existing skill row fields remain: `name`, `state`, `installed`, `global`, `groups`, `dependencies`, `reason`, `parent`, and `global_for`.
+Agent and bundle listings use the same state vocabulary; bundle `views` keys identify both harness and member artifact.
+`--group` is currently supported only with `--type skill`.
+The additive skill and agent `views` object is keyed by harness ID.
 The `state` enumeration is `available`, `linked`, `drift`, or `missing`.
 
 ### `scout`
@@ -216,28 +237,32 @@ kura scout [--type skill] [--focus TAG] [--add]
 ### `add`
 
 ```text
-kura add [NAME...] --type skill [--group TAG] [--global]
+kura add [NAME...] --type {skill,agent,bundle} [--group TAG] [--global]
 ```
 
-Project `add` requires root `kura.json`, adds direct intent, derives dependencies, and reconciles every selected view atomically.
+Project `add` requires root `kura.json`, adds direct intent, derives dependencies and bundle closures, and reconciles every selected view atomically.
+`--type agent` selects standalone root agents only.
+`--type bundle` selects a bundle and installs its owned agents and skills plus explicit requirements.
 A fully healthy repeated add returns `ALREADY`.
 A repeated add with drift repairs the selected views.
 `--global` instead creates temporary scratch links in every globally enabled harness and does not write a global manifest.
 The next `sync` restores registry-global policy.
-`--group TAG` selects metadata-backed group members and cannot be combined with names.
+`--group TAG` selects skill group members and cannot be combined with names; agent and bundle selections require explicit names.
 Without `--global`, the project half is selected; with it, the global-policy half is selected.
+Global `add` supports skills only; typed non-skill global adds are refused.
 
 ### `remove`
 
 ```text
-kura remove [NAME...] --type skill [--group TAG] [--global] [--no-cascade]
+kura remove [NAME...] --type {skill,agent,bundle} [--group TAG] [--global] [--no-cascade]
 ```
 
-Project `remove` removes direct intent, re-derives dependencies, and reconciles every selected view atomically.
-Dependencies still required by another direct skill remain.
+Project `remove` removes direct intent, re-derives dependencies and bundle closures, and reconciles every selected view atomically.
+Dependencies still required by another direct skill, agent, or bundle remain.
 `--global` removes matching temporary global links from every globally enabled harness until the next `sync`.
-`--group TAG` follows the same partition rule as `add`.
+`--group TAG` follows the same skill-only partition rule as `add`.
 `--no-cascade` remains accepted as a deprecated compatibility flag, but dependencies are declaratively derived from `kura.json`.
+Global `remove` supports skills only; typed non-skill global removes are refused.
 
 ### `restore`
 
@@ -245,7 +270,8 @@ Dependencies still required by another direct skill remain.
 kura restore [--type skill] [--dry-run]
 ```
 
-`restore` requires root `kura.json` and creates missing direct and derived links in every selected harness.
+`restore` currently supports `--type skill` only.
+Bare `restore` requires root `kura.json` and creates missing direct and derived skill and agent links in every selected harness.
 It deletes nothing.
 A conflicting path refuses before any write.
 A missing direct catalog skill remains declared and returns `DRIFT`.
@@ -280,7 +306,9 @@ Real directories and foreign links are never adopted.
 kura sync [--type skill] [--dry-run]
 ```
 
-`sync` projects the recursive registry-global closure into every globally enabled harness.
+Bare `sync` projects the recursive registry-global skill closure and registry-global standalone agents into every globally enabled harness.
+Bare `sync` also includes skill dependencies of selected global agents.
+`sync --type skill` narrows to the skill registry policy without changing agent views.
 It prunes only symlinks resolving under the fixed catalog and never touches real paths or foreign links.
 If desired global state and managed state are both empty, the result succeeds.
 If desired global state is empty while managed global links exist, it returns `DRIFT` and deletes nothing.
@@ -305,8 +333,9 @@ Read-only `outdated` may inspect the fixed catalog without saved machine configu
 kura doctor [--type skill]
 ```
 
-`doctor` can run without a project manifest.
-It returns `DRIFT` for invalid configuration or manifests, missing desired content, unsafe collisions, and incorrect native views.
+Bare `doctor` checks the catalog, machine configuration, project manifest when present, and implemented skill and agent views.
+It can run without a project manifest.
+It returns `DRIFT` for invalid configuration or manifests, missing desired content, unsafe collisions, missing required Pi agent paths, and incorrect native views.
 Missing executables, trust state, split instructions, and preserved legacy rows are informational notes.
 
 ### `trust`
@@ -324,16 +353,18 @@ Claude Code keeps its existing Git-root and main-worktree key behavior in `~/.cl
 Pi uses canonical cwd and nearest-parent semantics in `~/.pi/agent/trust.json`.
 Pi trust writes follow its private proper-lockfile-compatible lock directory protocol.
 A multi-harness mutation preflights every store and restores exact original bytes and modes if a later write fails.
+The backend dotfiles pilot bundle is documented as the intended first migration shape, but it is not deployed yet.
 
 ## Safety and transactions
 
 A real path or foreign symlink is never replaced or deleted.
-A managed link must occupy the expected native path and resolve under the fixed catalog's `skills` directory.
+A managed skill link must occupy the expected native path and resolve under the fixed catalog's `skills` directory or an exact declared bundle-owned skill source.
+A managed agent link must occupy the expected native path and resolve under a root agent source or an exact bundle-owned agent source.
 
 Every multi-path mutation follows one process:
 
 1. Read and validate machine configuration, project intent, catalog metadata, and native state.
-2. Derive the complete desired skill closure.
+2. Derive the complete desired skill, agent, and bundle closure.
 3. Build and preflight a deterministic cross-harness plan.
 4. Apply filesystem changes.
 5. Write configuration or manifest state last.

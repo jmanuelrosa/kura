@@ -7,8 +7,9 @@ The multi-harness implementation discovers skills from `skills/<name>/SKILL.md` 
 Its `skill-registry.json` names [the registry schema](../../docs/schemas/skill-registry.schema.json) relatively, so the committed example is validated while it is edited.
 Kura ignores the key, and the fixture is the worked example the schema is checked against.
 
-The retained `agents/`, `plugins/`, and `agent-registry.json` fixtures describe the legacy state that migration preserves without managing.
-They are no longer catalog inputs for the skills-only phase.
+The retained `plugins/` fixture describes legacy state that migration preserves without managing.
+The `agents/` and `agent-registry.json` fixtures are active agent catalog inputs for bundle and agent-view tests.
+Fixture agents deliberately use non-global groups so legacy skill tests do not accidentally grow global agent policy.
 
 ## Skill cases
 

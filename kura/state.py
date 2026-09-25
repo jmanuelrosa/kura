@@ -10,6 +10,7 @@ from . import catalog as cat
 from . import harnesses
 
 SCHEMA_VERSION = 1
+V2_SCHEMA_VERSION = 2
 FILENAME = "kura.json"
 DIRECT = "direct"
 DEP_PREFIX = "dep-of:"
@@ -27,13 +28,21 @@ class Manifest:
     skills: tuple = ()
     legacy: dict = field(default_factory=dict)
     schema_version: int = SCHEMA_VERSION
+    agents: tuple = ()
+    bundles: tuple = ()
 
     def as_dict(self):
+        version = self.schema_version
+        if version == SCHEMA_VERSION and (self.agents or self.bundles):
+            version = V2_SCHEMA_VERSION
         data = {
-            "schemaVersion": self.schema_version,
+            "schemaVersion": version,
             "harnesses": list(self.harnesses),
             "skills": list(self.skills),
         }
+        if version == V2_SCHEMA_VERSION:
+            data["agents"] = sorted(set(self.agents))
+            data["bundles"] = sorted(set(self.bundles))
         if self.legacy:
             data["legacy"] = {
                 collection: dict(sorted(entries.items()))
@@ -77,18 +86,17 @@ def _sorted_unique_strings(value, field_name, nonempty=False):
     return tuple(value)
 
 
-def parse(data):
-    if not isinstance(data, dict):
-        raise Malformed("the top level is not an object")
-    version = data.get("schemaVersion")
-    if version != SCHEMA_VERSION:
-        raise Malformed(f"unsupported schemaVersion {version!r}; expected {SCHEMA_VERSION}")
-    raw_harnesses = data.get("harnesses")
-    try:
-        selected = harnesses.validate_ids(raw_harnesses, "harnesses")
-    except ValueError as exc:
-        raise Malformed(str(exc)) from exc
-    skills = _sorted_unique_strings(data.get("skills"), "skills")
+def _artifact_names(value, field_name):
+    names = _sorted_unique_strings(value, field_name)
+    for name in names:
+        try:
+            cat._validate_registry_name(name)
+        except ValueError as exc:
+            raise Malformed(f"{field_name} contains an unsafe name {name!r}") from exc
+    return names
+
+
+def _parse_legacy(data):
     raw_legacy = data["legacy"] if "legacy" in data else {}
     if not isinstance(raw_legacy, dict):
         raise Malformed("legacy must be an object")
@@ -107,7 +115,33 @@ def parse(data):
             raise Malformed(f"legacy.{collection} must map names to string reasons")
         if entries:
             legacy[collection] = dict(sorted(entries.items()))
-    return Manifest(selected, skills, legacy)
+    return legacy
+
+
+def parse(data):
+    if not isinstance(data, dict):
+        raise Malformed("the top level is not an object")
+    version = data.get("schemaVersion")
+    if version not in (SCHEMA_VERSION, V2_SCHEMA_VERSION):
+        raise Malformed(
+            f"unsupported schemaVersion {version!r}; expected {SCHEMA_VERSION} or {V2_SCHEMA_VERSION}"
+        )
+    raw_harnesses = data.get("harnesses")
+    try:
+        selected = harnesses.validate_ids(raw_harnesses, "harnesses")
+    except ValueError as exc:
+        raise Malformed(str(exc)) from exc
+    skills = _sorted_unique_strings(data.get("skills"), "skills")
+    if version == SCHEMA_VERSION:
+        unexpected = sorted(set(data) & {"agents", "bundles"})
+        if unexpected:
+            raise Malformed(
+                f"schemaVersion 1 cannot contain active collections: {', '.join(unexpected)}"
+            )
+        return Manifest(selected, skills, _parse_legacy(data), SCHEMA_VERSION)
+    agents = _artifact_names(data.get("agents"), "agents")
+    bundles = _artifact_names(data.get("bundles"), "bundles")
+    return Manifest(selected, skills, _parse_legacy(data), V2_SCHEMA_VERSION, agents, bundles)
 
 
 def loads(text):
@@ -130,6 +164,19 @@ def read(project):
         return read_strict(project)
     except (Malformed, OSError):
         return None
+
+
+def upgrade(manifest, agents=None, bundles=None):
+    agent_names = manifest.agents if agents is None else agents
+    bundle_names = manifest.bundles if bundles is None else bundles
+    return Manifest(
+        manifest.harnesses,
+        manifest.skills,
+        manifest.legacy,
+        V2_SCHEMA_VERSION,
+        _artifact_names(sorted(set(agent_names)), "agents"),
+        _artifact_names(sorted(set(bundle_names)), "bundles"),
+    )
 
 
 def dump(manifest):
@@ -225,8 +272,14 @@ def merge(root_manifest, migrated_manifest):
                     f"{current[name]!r} != {reason!r}"
                 )
             current[name] = reason
+    version = root_manifest.schema_version
+    if root_manifest.agents or root_manifest.bundles:
+        version = V2_SCHEMA_VERSION
     return Manifest(
         root_manifest.harnesses,
         tuple(sorted(root_skills or legacy_skills)),
         legacy,
+        version,
+        root_manifest.agents,
+        root_manifest.bundles,
     )

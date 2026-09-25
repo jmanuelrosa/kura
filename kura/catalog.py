@@ -12,6 +12,7 @@ from pathlib import Path
 SKILL = "skill"
 AGENT = "agent"
 PLUGIN = "plugin"
+BUNDLE = "bundle"
 
 # Where each type INSTALLS. Plugins load as <name>@skills-dir, so they share the
 # skills leaf with skills.
@@ -33,6 +34,7 @@ PLUGIN_MANIFEST = ".claude-plugin/plugin.json"
 PLUGIN_DEPS_KEY = "skillDependencies"
 PLUGIN_RESERVED_KEY = "dependencies"
 PLUGIN_REQUIRED_KEYS = ("name", "description", "version")
+BUNDLE_MARKER = "bundle.json"
 
 
 @dataclass(frozen=True)
@@ -69,6 +71,17 @@ class Artifact:
     @property
     def has_upstream(self):
         return self.upstream_repo is not None
+
+
+@dataclass(frozen=True)
+class Bundle:
+    name: str
+    source: Path
+    agents: tuple = ()
+    skills: tuple = ()
+    requires_skills: tuple = ()
+    requires_agents: tuple = ()
+    catalog_error: str = None
 
 
 def _validate_registry_name(name):
@@ -123,8 +136,9 @@ def registry_entries(registry, collection):
     repo_key is None for local entries, which is what distinguishes a skill with
     an upstream from one authored here.
     """
-    if "repos" in registry or "local_skills" in registry:
-        raise ValueError("registry uses retired repos or local_skills keys; use upstream and local")
+    retired = sorted(set(registry) & {"repos", "local_skills", "local_agents"})
+    if retired:
+        raise ValueError(f"registry uses retired {', '.join(retired)} keys; use upstream and local")
     upstream = registry.get("upstream") or {}
     local = registry.get("local") or []
     if not isinstance(upstream, dict) or not isinstance(local, list):
@@ -144,7 +158,7 @@ def registry_entries(registry, collection):
         yield name, entry, None
 
 
-def _frontmatter_name(path):
+def _frontmatter_value(path, wanted):
     if not path.is_file():
         return None
     text = path.read_text()
@@ -153,28 +167,65 @@ def _frontmatter_name(path):
     body, marker, _ = text[4:].partition("\n---")
     if not marker:
         return None
+    quoted = {wanted, f'"{wanted}"', f"'{wanted}'"}
     for line in body.splitlines():
         if line.startswith((" ", "\t")):
             continue
         key, separator, value = line.partition(":")
-        if not separator or key.strip() not in ("name", '"name"', "'name'"):
+        if not separator or key.strip() not in quoted:
             continue
         return value.strip().strip("\"'") or None
     return None
 
 
-def _metadata_strings(entry, key, artifact_name):
-    value = entry.get(key, [])
+def _frontmatter_name(path):
+    return _frontmatter_value(path, "name")
+
+
+def _agent_description_error(path, label):
+    if _frontmatter_name(path) is None:
+        return f"{label} is missing frontmatter name"
+    if _frontmatter_value(path, "description") is None:
+        return f"{label} is missing frontmatter description"
+    return None
+
+
+def _strings(value, label, validate=False):
     if value is None:
         return ()
     if not isinstance(value, list) or any(
         not isinstance(item, str) or not item for item in value
     ):
-        raise ValueError(f"registry skill {artifact_name!r} has malformed {key}")
-    if key == "dependencies":
+        raise ValueError(f"{label} must be a list of non-empty strings")
+    if validate:
         for item in value:
             _validate_registry_name(item)
     return tuple(value)
+
+
+def _required_names(value, label):
+    if not isinstance(value, list) or any(
+        not isinstance(item, str) or not item for item in value
+    ):
+        raise ValueError(f"{label} must be a list of non-empty strings")
+    seen = set()
+    duplicates = []
+    for item in value:
+        _validate_registry_name(item)
+        if item in seen:
+            duplicates.append(item)
+        seen.add(item)
+    if duplicates:
+        raise ValueError(f"{label} has duplicate names: {', '.join(sorted(set(duplicates)))}")
+    return tuple(value)
+
+
+def _metadata_strings(entry, key, artifact_name):
+    value = entry.get(key, [])
+    try:
+        return _strings(value, f"registry skill {artifact_name!r} {key}", key == "dependencies")
+    except ValueError as exc:
+        raise ValueError(f"registry skill {artifact_name!r} has malformed {key}") from exc
 
 
 def _from_registry(claude, kind):
@@ -192,6 +243,9 @@ def _from_registry(claude, kind):
         declared = None
         if containment is None:
             declared = _frontmatter_name(source / "SKILL.md") if kind == SKILL else _frontmatter_name(source)
+        metadata_error = None
+        if kind == AGENT and containment is None and source.exists():
+            metadata_error = _agent_description_error(source, f"agent '{name}'")
         mismatch = None
         if containment is None and source.exists() and declared != name:
             shown = declared if declared is not None else "missing"
@@ -212,7 +266,127 @@ def _from_registry(claude, kind):
             upstream_branch=upstream[repo_key].get("branch") if repo_key else None,
             updated_at=entry.get("updated_at"),
             metadata=True,
-            catalog_error=containment or mismatch,
+            catalog_error=containment or metadata_error or mismatch,
+        )
+    return out
+
+
+def _root_agents(claude):
+    catalog = {}
+    registered_agents = _from_registry(claude, AGENT)
+    agent_root = claude / STORE[AGENT]
+    if agent_root.is_dir():
+        for path in sorted(agent_root.glob("*.md")):
+            name = _validate_registry_name(path.stem)
+            declared = _frontmatter_name(path)
+            art = registered_agents.pop(name, None)
+            if art is None and declared in registered_agents:
+                metadata_art = registered_agents.pop(declared)
+                art = replace(
+                    metadata_art,
+                    source=path,
+                    catalog_error=(
+                        f"registry name '{declared}', source name '{declared}', and "
+                        f"file name '{path.stem}' must agree"
+                    ),
+                )
+            if art is None:
+                art = Artifact(name=name, type=AGENT, source=path, metadata=False)
+            containment = _containment_error(AGENT, path, agent_root)
+            metadata_error = None
+            if containment is None:
+                metadata_error = _agent_description_error(path, f"agent '{art.name}'")
+            mismatch = None
+            if containment is None and declared != art.name:
+                shown = declared if declared is not None else "missing"
+                mismatch = f"agent name '{art.name}', source name '{shown}', and file name '{path.stem}' must agree"
+            if containment or metadata_error or mismatch:
+                art = replace(art, catalog_error=containment or metadata_error or mismatch)
+            catalog[(AGENT, art.name)] = art
+    for name, art in registered_agents.items():
+        catalog[(AGENT, name)] = art
+    return catalog
+
+
+def _owned_skill(path, root, bundle_name):
+    name = _validate_registry_name(path.parent.name)
+    declared = _frontmatter_name(path)
+    containment = _containment_error(SKILL, path.parent, root)
+    mismatch = None
+    if containment is None and declared != name:
+        shown = declared if declared is not None else "missing"
+        mismatch = f"bundle '{bundle_name}' skill name '{name}', source name '{shown}', and directory name '{path.parent.name}' must agree"
+    return Artifact(name=name, type=SKILL, source=path.parent, catalog_error=containment or mismatch)
+
+
+def _owned_agent(path, root, bundle_name):
+    name = _validate_registry_name(path.stem)
+    declared = _frontmatter_name(path)
+    containment = _containment_error(AGENT, path, root)
+    mismatch = None
+    if containment is None and declared != name:
+        shown = declared if declared is not None else "missing"
+        mismatch = f"bundle '{bundle_name}' agent name '{name}', source name '{shown}', and file name '{path.stem}' must agree"
+    description_error = None if containment else _agent_description_error(path, f"bundle '{bundle_name}' agent '{name}'")
+    return Artifact(name=name, type=AGENT, source=path, catalog_error=containment or mismatch or description_error)
+
+
+def _bundle_requires(path):
+    data = _read_json(path)
+    requires = data.get("requires", {})
+    if not isinstance(requires, dict):
+        raise ValueError(f"{path} requires must be an object")
+    unknown = sorted(set(requires) - {"skills", "agents"})
+    if unknown:
+        raise ValueError(f"{path} requires has unknown keys: {', '.join(unknown)}")
+    return (
+        _required_names(requires.get("skills", []), f"{path} requires.skills"),
+        _required_names(requires.get("agents", []), f"{path} requires.agents"),
+    )
+
+
+def _from_bundles(claude):
+    out = {}
+    root = claude / "bundles"
+    if not root.is_dir():
+        return out
+    for directory in sorted(root.iterdir()):
+        if not directory.is_dir():
+            continue
+        name = _validate_registry_name(directory.name)
+        marker = directory / BUNDLE_MARKER
+        if not marker.is_file():
+            continue
+        containment = _containment_error(BUNDLE, directory, root)
+        marker_containment = _containment_error(BUNDLE, marker, directory)
+        if marker_containment:
+            requires_skills, requires_agents = (), ()
+        else:
+            requires_skills, requires_agents = _bundle_requires(marker)
+        skills_root = directory / STORE[SKILL]
+        agents_root = directory / STORE[AGENT]
+        owned_skills = tuple(
+            _owned_skill(path, skills_root, name)
+            for path in sorted(skills_root.glob("*/SKILL.md"))
+        )
+        owned_agents = tuple(
+            _owned_agent(path, agents_root, name)
+            for path in sorted(agents_root.glob("*.md"))
+        )
+        missing = None
+        if not owned_skills or not owned_agents:
+            missing = f"bundle '{name}' must contain at least one agent and one skill"
+        errors = tuple(
+            art.catalog_error for art in (*owned_skills, *owned_agents) if art.catalog_error
+        )
+        out[(BUNDLE, name)] = Bundle(
+            name=name,
+            source=directory,
+            agents=owned_agents,
+            skills=owned_skills,
+            requires_skills=requires_skills,
+            requires_agents=requires_agents,
+            catalog_error=containment or marker_containment or missing or (errors[0] if errors else None),
         )
     return out
 
@@ -280,6 +454,9 @@ def build_catalog(claude):
     for name, art in registered_skills.items():
         catalog[(SKILL, name)] = art
 
+    catalog.update(_root_agents(claude))
+    catalog.update(_from_bundles(claude))
+
     return catalog
 
 
@@ -293,9 +470,17 @@ def of_type(catalog, kind):
 
 
 def skills(catalog):
-    """Name-keyed skills. Every dependency edge names a skill, so resolvers want
+    """Name-keyed standalone skills. Every dependency edge names a skill, so legacy resolvers want
     this view rather than the pair-keyed catalog."""
     return {art.name: art for (t, _), art in catalog.items() if t == SKILL}
+
+
+def agents(catalog):
+    return {art.name: art for (t, _), art in catalog.items() if t == AGENT}
+
+
+def bundles(catalog):
+    return {bundle.name: bundle for (t, _), bundle in catalog.items() if t == BUNDLE}
 
 
 def visible(catalog, kind):
@@ -323,6 +508,10 @@ def duplicate_names(catalog):
     for (kind, name) in catalog:
         seen.setdefault(name, []).append(kind)
     return {n: sorted(k) for n, k in seen.items() if len(k) > 1}
+
+
+def _source_key(path):
+    return path.resolve() if path is not None else None
 
 
 @dataclass(frozen=True)
@@ -387,3 +576,135 @@ def global_resolution(catalog):
         if art.metadata and art.tagged_global
     ]
     return resolve(catalog, roots)
+
+
+@dataclass(frozen=True)
+class BundleResolution:
+    bundles: tuple
+    skills: tuple
+    agents: tuple
+    missing_bundles: tuple = ()
+    missing_skills: tuple = ()
+    missing_agents: tuple = ()
+    missing_dependencies: tuple = ()
+    invalid: tuple = ()
+
+    @property
+    def names(self):
+        return self.skills
+
+    @property
+    def complete(self):
+        return not (
+            self.missing_bundles
+            or self.missing_skills
+            or self.missing_agents
+            or self.missing_dependencies
+            or self.invalid
+        )
+
+
+def bundle_resolution(catalog, names, direct_skills=(), direct_agents=()):
+    bundle_map = bundles(catalog)
+    skill_map = skills(catalog)
+    agent_map = agents(catalog)
+    requested_bundles = sorted(set(names))
+    requested_skills = sorted(set(direct_skills))
+    requested_agents = sorted(set(direct_agents))
+    reached_bundles = []
+    reached_skills = {}
+    reached_agents = {}
+    missing_bundles = []
+    missing_skills = []
+    missing_agents = []
+    invalid = []
+
+    def add_artifact(target, art, owner):
+        previous = target.get(art.name)
+        if previous is not None and _source_key(previous.source) != _source_key(art.source):
+            invalid.append((art.name, f"{owner} conflicts with {previous.source}"))
+            return
+        if art.catalog_error:
+            invalid.append((art.name, art.catalog_error))
+            return
+        target[art.name] = art
+
+    for name in requested_skills:
+        art = skill_map.get(name)
+        if art is None or art.catalog_error or not art.source.is_dir():
+            missing_skills.append(name)
+            if art is not None and art.catalog_error:
+                invalid.append((name, art.catalog_error))
+            continue
+        add_artifact(reached_skills, art, "direct skill")
+    for name in requested_agents:
+        art = agent_map.get(name)
+        if art is None or art.catalog_error or not art.source.is_file():
+            missing_agents.append(name)
+            if art is not None and art.catalog_error:
+                invalid.append((name, art.catalog_error))
+            continue
+        add_artifact(reached_agents, art, "direct agent")
+
+    for name in requested_bundles:
+        bundle = bundle_map.get(name)
+        if bundle is None:
+            missing_bundles.append(name)
+            continue
+        if bundle.catalog_error:
+            invalid.append((name, bundle.catalog_error))
+            continue
+        reached_bundles.append(name)
+        for art in bundle.skills:
+            add_artifact(reached_skills, art, f"bundle '{name}'")
+        for art in bundle.agents:
+            add_artifact(reached_agents, art, f"bundle '{name}'")
+        for skill_name in bundle.requires_skills:
+            art = skill_map.get(skill_name)
+            if art is None or art.catalog_error or not art.source.is_dir():
+                missing_skills.append(skill_name)
+                if art is not None and art.catalog_error:
+                    invalid.append((skill_name, art.catalog_error))
+            else:
+                add_artifact(reached_skills, art, f"bundle '{name}' requirement")
+        for agent_name in bundle.requires_agents:
+            art = agent_map.get(agent_name)
+            if art is None or art.catalog_error or not art.source.is_file():
+                missing_agents.append(agent_name)
+                if art is not None and art.catalog_error:
+                    invalid.append((agent_name, art.catalog_error))
+            else:
+                add_artifact(reached_agents, art, f"bundle '{name}' requirement")
+
+    for agent in tuple(reached_agents.values()):
+        for skill_name in sorted(set(agent.dependencies)):
+            art = skill_map.get(skill_name)
+            if art is None or art.catalog_error or not art.source.is_dir():
+                missing_skills.append(skill_name)
+                if art is not None and art.catalog_error:
+                    invalid.append((skill_name, art.catalog_error))
+            else:
+                add_artifact(reached_skills, art, f"agent '{agent.name}' dependency")
+
+    root_skill_names = [
+        name
+        for name, art in reached_skills.items()
+        if (SKILL, name) in catalog and _source_key(catalog[(SKILL, name)].source) == _source_key(art.source)
+    ]
+    skill_resolution = resolve(catalog, root_skill_names)
+    for name in skill_resolution.names:
+        art = skill_map.get(name)
+        if art is not None:
+            add_artifact(reached_skills, art, "skill dependency")
+    invalid.extend(skill_resolution.invalid)
+
+    return BundleResolution(
+        tuple(sorted(set(reached_bundles))),
+        tuple(sorted(reached_skills)),
+        tuple(sorted(reached_agents)),
+        tuple(sorted(set(missing_bundles))),
+        tuple(sorted(set(missing_skills) | set(skill_resolution.missing_direct))),
+        tuple(sorted(set(missing_agents))),
+        tuple(sorted(set(skill_resolution.missing_dependencies))),
+        tuple(sorted(set(invalid))),
+    )

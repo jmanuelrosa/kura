@@ -363,6 +363,7 @@ def run(args):
             declaration,
             machine.global_harnesses,
             replace_roots=("pi",) if old_topology else (),
+            machine_config=machine,
         )
         common.refuse_plan(projection, "initialize this project")
         combined.extend(projection)

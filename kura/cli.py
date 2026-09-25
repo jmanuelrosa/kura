@@ -31,7 +31,7 @@ NO_ARGPARSE_COLOR = (
     {"color": False} if "color" in argparse.ArgumentParser.__init__.__code__.co_varnames else {}
 )
 
-TYPES = ("skill",)
+TYPES = ("skill", "agent", "bundle", "plugin")
 
 COMMANDS = {
     "init": "Initialize this exact directory for selected harnesses",
@@ -301,8 +301,8 @@ def _add_type(parser, required=True):
         dest="type",
         choices=TYPES,
         required=required,
-        metavar="skill",
-        help="artifact type (skills are the only managed type in this phase)",
+        metavar="{skill,agent,bundle,plugin}",
+        help="artifact type",
     )
 
 
@@ -606,6 +606,16 @@ def build_parser():
 
 
 def _dispatch(args):
+    type_filter = getattr(args, "type", None)
+    guarded = args.command not in ("add", "remove", "update", "outdated")
+    if args.command == "list" and type_filter in ("agent", "bundle"):
+        guarded = False
+    if guarded and type_filter not in (None, "skill"):
+        return fail(
+            errors.USAGE,
+            f"`{args.command}` currently supports `--type skill` only. "
+            f"`--type {type_filter}` is not implemented yet.",
+        )
     # Imported lazily so a usage error costs no registry read: A1 requires that a
     # missing --type touch nothing at all. import_module defers exactly as a `from`
     # statement does, so the table costs that guarantee nothing.

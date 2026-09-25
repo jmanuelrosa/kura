@@ -130,7 +130,7 @@ def config_action(home, machine_config, expected_config=_UNSET):
         raise Refusal(errors.DRIFT, f"{path} changed after machine configuration was read.")
     if expected_config is not _UNSET and expected_config is not None:
         try:
-            live = config.loads(before.data.decode()) if before.kind == "file" else None
+            live = config.loads(before.data.decode(), home) if before.kind == "file" else None
         except (UnicodeError, config.Malformed):
             live = None
         if live is None or live.as_dict() != expected_config.as_dict():

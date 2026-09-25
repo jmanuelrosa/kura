@@ -23,6 +23,14 @@ class Config:
     extra: dict = field(default_factory=dict, compare=False)
     schema_version: int = SCHEMA_VERSION
 
+    @property
+    def pi_agent_global(self):
+        return _pi_agent_value(self.extra, "global")
+
+    @property
+    def pi_agent_project(self):
+        return _pi_agent_value(self.extra, "project")
+
     def as_dict(self):
         data = dict(self.extra)
         data.update(
@@ -50,7 +58,79 @@ def catalog_path(home=None):
     return home / CATALOG_PATH
 
 
-def parse(data):
+def _pi_agent_value(extra, scope):
+    pi = extra.get("pi", {})
+    if not isinstance(pi, dict):
+        return None
+    agents = pi.get("agents", {})
+    if not isinstance(agents, dict):
+        return None
+    return agents.get(scope)
+
+
+def _normal_absolute(path):
+    return Path(os.path.normpath(os.path.abspath(path)))
+
+
+def _validate_pi_global_path(value, home):
+    if not isinstance(value, str) or not value:
+        raise Malformed("pi.agents.global must be a non-empty path string")
+    if value == "~" or value.startswith("~/"):
+        expanded = Path(home, value[2:]) if value.startswith("~/") else Path(home)
+    elif value.startswith("~"):
+        raise Malformed("pi.agents.global must use ~ or an absolute path under HOME")
+    else:
+        raw = Path(value)
+        if not raw.is_absolute():
+            raise Malformed("pi.agents.global must use ~ or an absolute path under HOME")
+        expanded = raw
+    home = _normal_absolute(home)
+    expanded = _normal_absolute(expanded)
+    if expanded == home or home not in expanded.parents:
+        raise Malformed("pi.agents.global must be a directory under HOME")
+    return expanded
+
+
+def _validate_pi_project_path(value):
+    if not isinstance(value, str) or not value:
+        raise Malformed("pi.agents.project must be a non-empty path string")
+    path = Path(value)
+    if path.is_absolute():
+        raise Malformed("pi.agents.project must be relative to the project")
+    if not path.parts or any(part in ("", "..") for part in path.parts):
+        raise Malformed("pi.agents.project must not escape the project or name its root")
+    return path
+
+
+def _validate_pi(data, home):
+    pi = data.get("pi")
+    if pi is None:
+        return
+    if not isinstance(pi, dict):
+        raise Malformed("pi must be an object")
+    agents = pi.get("agents")
+    if agents is None:
+        return
+    if not isinstance(agents, dict):
+        raise Malformed("pi.agents must be an object")
+    for scope in ("global", "project"):
+        if scope not in agents:
+            continue
+        path = (
+            _validate_pi_global_path(agents[scope], home)
+            if scope == "global"
+            else _validate_pi_project_path(agents[scope])
+        )
+        anchor = Path(home) if scope == "global" else Path(".")
+        owned = [harnesses.skill_root(harness_id, anchor, None if scope == "global" else anchor)
+                 for harness_id in harnesses.IDS]
+        owned.append(harnesses.agent_root("claude", anchor, None if scope == "global" else anchor))
+        for root in owned:
+            if path == root or path in root.parents or root in path.parents:
+                raise Malformed(f"pi.agents.{scope} overlaps the {root} native view")
+
+
+def parse(data, home=None):
     if not isinstance(data, dict):
         raise Malformed("the top level is not an object")
     version = data.get("schemaVersion")
@@ -60,22 +140,23 @@ def parse(data):
         selected = harnesses.validate_ids(data.get("globalHarnesses"), "globalHarnesses")
     except ValueError as exc:
         raise Malformed(str(exc)) from exc
+    _validate_pi(data, Path(home) if home is not None else home_path())
     known = {"schemaVersion", "catalog", "globalHarnesses"}
     return Config(selected, {key: value for key, value in data.items() if key not in known})
 
 
-def loads(text):
+def loads(text, home=None):
     try:
         data = json.loads(text)
     except ValueError as exc:
         raise Malformed(str(exc)) from exc
-    return parse(data)
+    return parse(data, home)
 
 
 def read(home=None):
     path = path_for(home)
     try:
-        return loads(path.read_text())
+        return loads(path.read_text(), home)
     except FileNotFoundError:
         return None
     except OSError:

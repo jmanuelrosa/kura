@@ -56,6 +56,122 @@ def _unknown_views(home, project, selected, name):
     return output
 
 
+def _view_state(path, source, roots, exact_sources=()):
+    if path is None:
+        return {"state": views.MISSING}
+    detail = views.classify(path, source, roots, exact_sources)
+    output = {"state": detail.state}
+    if detail.target is not None:
+        output["target"] = str(detail.target)
+    return output
+
+
+def _agent_views(catalog_root, home, project, machine, harness_ids, name, art, exact_sources=()):
+    roots = views.accepted_agent_roots(catalog_root)
+    return {
+        harness_id: _view_state(
+            harnesses.agent_path(harness_id, name, home, project, machine),
+            art.source,
+            roots,
+            exact_sources,
+        )
+        for harness_id in harness_ids
+    }
+
+
+def _member_views(catalog_root, home, project, machine, harness_ids, skill_map, agent_map):
+    output = {}
+    skill_sources = tuple(art.source for art in skill_map.values())
+    agent_sources = tuple(art.source for art in agent_map.values())
+    for name, art in sorted(skill_map.items()):
+        for harness_id in harness_ids:
+            output[f"{harness_id} skill {name}"] = _view_state(
+                harnesses.skill_path(harness_id, name, home, project),
+                art.source,
+                views.accepted_skill_roots(catalog_root),
+                skill_sources,
+            )
+    for name, art in sorted(agent_map.items()):
+        for harness_id, detail in _agent_views(catalog_root, home, project, machine, harness_ids, name, art, agent_sources).items():
+            output[f"{harness_id} agent {name}"] = detail
+    return output
+
+
+def _agent_rows(catalog, catalog_root, machine, home, project, manifest):
+    selected = manifest.harnesses if manifest else ()
+    _, project_agents = views.project_sources(catalog, manifest) if manifest else ({}, {})
+    exact_sources = tuple(art.source for art in project_agents.values())
+    output = []
+    global_ids = machine.global_harnesses if machine else ()
+    for art in cat.visible(catalog, cat.AGENT):
+        selected_source = project_agents.get(art.name)
+        is_configured = selected_source is not None and selected_source.source == art.source
+        is_global = art.metadata and art.tagged_global
+        project_views = _agent_views(catalog_root, home, project, machine, selected if is_configured else (), art.name, art, exact_sources)
+        global_views = _agent_views(catalog_root, home, None, machine, global_ids if is_global else (), art.name, art)
+        if is_configured and is_global:
+            view_map = {
+                harness_id: (
+                    global_views[harness_id]
+                    if harness_id in global_ids and global_views[harness_id]["state"] != views.MISSING
+                    else project_views[harness_id]
+                )
+                for harness_id in selected
+            }
+        else:
+            view_map = project_views if is_configured else global_views
+        healthy = bool(view_map) and all(value["state"] == views.CURRENT for value in view_map.values())
+        on_disk = art.source is not None and art.source.is_file()
+        row_state = MISSING if not on_disk else LINKED if healthy else DRIFT if is_configured or is_global else AVAILABLE
+        installed = scope.GLOBAL if healthy and is_global else scope.PROJECT if healthy else None
+        output.append({"name": art.name, "state": row_state, "installed": installed, "global": is_global, "groups": tuple(sorted(set(art.groups))), "dependencies": tuple(sorted(set(art.dependencies))), "reason": state.DIRECT if manifest and art.name in manifest.agents else None, "parent": None, "global_for": (), "views": view_map})
+    bundle_map = cat.bundles(catalog)
+    for bundle_name in sorted(bundle_map):
+        bundle = bundle_map[bundle_name]
+        for art in bundle.agents:
+            name = art.name
+            is_configured = name in project_agents and bundle_name in (manifest.bundles if manifest else ())
+            view_map = _agent_views(catalog_root, home, project, machine, selected if is_configured else (), name, art, exact_sources)
+            healthy = bool(view_map) and all(value["state"] == views.CURRENT for value in view_map.values())
+            row_state = LINKED if is_configured and healthy else DRIFT if is_configured else AVAILABLE
+            output.append({"name": name, "state": row_state, "installed": scope.PROJECT if healthy else None, "global": False, "groups": (), "dependencies": (), "reason": state.dep_of(bundle_name) if is_configured else None, "parent": bundle_name if is_configured else None, "global_for": (), "views": view_map})
+    missing = set(manifest.agents if manifest else ()) - set(project_agents)
+    for name in sorted(missing):
+        output.append({"name": name, "state": MISSING, "installed": None, "global": False, "groups": (), "dependencies": (), "reason": state.DIRECT, "parent": None, "global_for": (), "views": _unknown_agent_views(home, project, machine, selected, name)})
+    return sorted(output, key=lambda row: (row["name"], row["parent"] or ""))
+
+
+def _unknown_agent_views(home, project, machine, selected, name):
+    output = {}
+    for harness_id in selected:
+        path = harnesses.agent_path(harness_id, name, home, project, machine)
+        if path is None:
+            output[harness_id] = {"state": views.MISSING}
+        elif path.is_symlink():
+            output[harness_id] = {"state": views.FOREIGN, "target": str(scope.link_target(path))}
+        elif path.exists():
+            output[harness_id] = {"state": views.REAL}
+        else:
+            output[harness_id] = {"state": views.MISSING}
+    return output
+
+
+def _bundle_rows(catalog, catalog_root, machine, home, project, manifest):
+    selected = manifest.harnesses if manifest else ()
+    output = []
+    bundle_map = cat.bundles(catalog)
+    for name, bundle in sorted(bundle_map.items()):
+        selected_bundle = manifest and name in manifest.bundles
+        bundle_intent = state.Manifest(selected, schema_version=state.V2_SCHEMA_VERSION, bundles=(name,))
+        skill_map, agent_map = views.project_sources(catalog, bundle_intent) if selected_bundle else ({}, {})
+        view_map = _member_views(catalog_root, home, project, machine, selected, skill_map, agent_map) if selected_bundle else {}
+        healthy = bool(view_map) and all(value["state"] == views.CURRENT for value in view_map.values())
+        output.append({"name": name, "state": LINKED if healthy else DRIFT if selected_bundle else AVAILABLE, "installed": scope.PROJECT if healthy else None, "global": False, "groups": (), "dependencies": tuple(sorted((*bundle.requires_skills, *bundle.requires_agents))), "reason": state.DIRECT if selected_bundle else None, "parent": None, "global_for": (), "views": view_map})
+    for name in sorted(set(manifest.bundles if manifest else ()) - set(bundle_map)):
+        output.append({"name": name, "state": MISSING, "installed": None, "global": False, "groups": (), "dependencies": (), "reason": state.DIRECT, "parent": None, "global_for": (), "views": {}})
+    return output
+
+
 def rows(catalog, catalog_root, machine, home, project, manifest, group=None):
     effective = set(scope.global_set(catalog))
     resolution = cat.resolve(catalog, manifest.skills) if manifest else cat.Resolution(())
@@ -235,7 +351,17 @@ def run(args):
                 stream=sys.stderr,
                 indent=0,
             )
-        listed = rows(catalog, catalog_root, machine, home, project, manifest, args.group)
+        listing_type = getattr(args, "type", None) or cat.SKILL
+        if listing_type == cat.AGENT:
+            if args.group is not None:
+                raise common.Refusal(errors.USAGE, "agent listing does not support --group")
+            listed = _agent_rows(catalog, catalog_root, machine, home, project, manifest)
+        elif listing_type == cat.BUNDLE:
+            if args.group is not None:
+                raise common.Refusal(errors.USAGE, "bundle listing does not support --group")
+            listed = _bundle_rows(catalog, catalog_root, machine, home, project, manifest)
+        else:
+            listed = rows(catalog, catalog_root, machine, home, project, manifest, args.group)
         if args.json:
             print(json.dumps(listed))
             return errors.OK
@@ -246,7 +372,8 @@ def run(args):
                 for row in members:
                     print(format_row(row, indent="    ", show_groups=False))
             return errors.OK
-        ui.title("🧩 Available skills:")
+        noun = {cat.SKILL: "skills", cat.AGENT: "agents", cat.BUNDLE: "bundles"}[listing_type]
+        ui.title(f"🧩 Available {noun}:")
         for row in listed:
             print(format_row(row))
         configured = len([row for row in listed if row["reason"] is not None])
@@ -257,7 +384,7 @@ def run(args):
             if detail["state"] == views.CURRENT
         )
         ui.blank()
-        ui.done(f"{len(listed)} skills, {configured} configured, {links} links current")
+        ui.done(f"{len(listed)} {noun}, {configured} configured, {links} links current")
         return errors.OK
 
     return common.run_guarded(operation)

@@ -348,7 +348,7 @@ def fixture_repo(tmp_path):
         )
         + "\n"
     )
-    (claude / "agent-registry.json").write_text(json.dumps({"version": 2, "repos": {}}, indent=2))
+    (claude / "agent-registry.json").write_text(json.dumps({"version": 3, "local": []}, indent=2))
     write_tree(claude / "skills" / "alpha", {"SKILL.md": "old alpha"})
     write_tree(claude / "skills" / "beta", {"SKILL.md": "current beta"})
     write_tree(claude / "skills" / "mine", {"SKILL.md": "local"})
@@ -469,7 +469,7 @@ def test_e6_one_failing_repo_still_syncs_the_others(tmp_path, monkeypatch, capsy
         )
         + "\n"
     )
-    (claude / "agent-registry.json").write_text(json.dumps({"version": 2, "repos": {}}))
+    (claude / "agent-registry.json").write_text(json.dumps({"version": 3, "local": []}))
     write_tree(claude / "skills" / "alpha", {"SKILL.md": "old"})
     write_tree(claude / "skills" / "gamma", {"SKILL.md": "keep me"})
 

@@ -1,4 +1,4 @@
-"""Built-in harness profiles and native skill paths."""
+"""Built-in harness profiles and native artifact paths."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +13,8 @@ class Profile:
     project_root: tuple
     global_root: tuple
     footprints: tuple
+    project_agents: tuple = None
+    global_agents: tuple = None
 
 
 PROFILES = {
@@ -23,6 +25,8 @@ PROFILES = {
         (".claude", "skills"),
         (".claude", "skills"),
         (".claude", "CLAUDE.md"),
+        (".claude", "agents"),
+        (".claude", "agents"),
     ),
     "pi": Profile(
         "pi",
@@ -71,6 +75,52 @@ def skill_root(harness_id, home, project=None):
 
 def skill_path(harness_id, name, home, project=None):
     return skill_root(harness_id, home, project) / name
+
+
+def _configured_pi_agent_root(home, project, value):
+    if value is None:
+        return None
+    path = Path(value)
+    if project is not None:
+        if path.is_absolute() or any(part in ("", "..") for part in path.parts):
+            return None
+        return Path(project) / path
+    if value == "~" or value.startswith("~/"):
+        return Path(home, value[2:]) if value.startswith("~/") else Path(home)
+    if value.startswith("~"):
+        return None
+    if not path.is_absolute():
+        return None
+    return path
+
+
+def project_agent_root(project, harness_id, machine_config=None):
+    profile = get(harness_id)
+    if profile.project_agents is not None:
+        return Path(project).joinpath(*profile.project_agents)
+    if harness_id == "pi" and machine_config is not None:
+        return _configured_pi_agent_root(None, project, machine_config.pi_agent_project)
+    return None
+
+
+def global_agent_root(home, harness_id, machine_config=None):
+    profile = get(harness_id)
+    if profile.global_agents is not None:
+        return Path(home).joinpath(*profile.global_agents)
+    if harness_id == "pi" and machine_config is not None:
+        return _configured_pi_agent_root(home, None, machine_config.pi_agent_global)
+    return None
+
+
+def agent_root(harness_id, home, project=None, machine_config=None):
+    if project is None:
+        return global_agent_root(home, harness_id, machine_config)
+    return project_agent_root(project, harness_id, machine_config)
+
+
+def agent_path(harness_id, name, home, project=None, machine_config=None):
+    root = agent_root(harness_id, home, project, machine_config)
+    return None if root is None else root / f"{name}.md"
 
 
 def executable_available(harness_id):

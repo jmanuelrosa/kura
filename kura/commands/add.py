@@ -7,6 +7,9 @@ from .. import errors, harnesses, paths, scope, state, ui, views
 from . import common
 
 
+PROJECT_ONLY = {cat.AGENT: "Standalone agents", cat.BUNDLE: "Bundles"}
+
+
 def _selected_names(catalog, args, effective):
     names = list(args.names)
     if args.group is None:
@@ -65,6 +68,7 @@ def _project(args, machine, catalog_root, catalog, names, elsewhere, project, ma
         manifest,
         declaration,
         machine.global_harnesses,
+        machine_config=machine,
     )
     common.refuse_plan(plan, "add the selected skills")
     healthy = not additions and not plan.actions and not plan.missing
@@ -115,14 +119,121 @@ def _global(args, machine, catalog_root, catalog, names, elsewhere):
     return errors.OK
 
 
+def _plugin_refusal():
+    raise common.Refusal(
+        errors.USAGE,
+        "Claude Code plugins are legacy Kura state. Migrate the content to a portable bundle, then run `kura add NAME --type bundle`.",
+    )
+
+
+def _refuse_project_only(kind):
+    label = PROJECT_ONLY[kind]
+    raise common.Refusal(errors.WRONG_SCOPE, f"{label} are project-only in this phase; remove `--global`.")
+
+
+def _explicit_names(args, label):
+    if args.group is not None:
+        raise common.Refusal(errors.USAGE, f"--group is not supported for {label}; name each {label[:-1]} explicitly.")
+    if not args.names:
+        raise common.Refusal(errors.USAGE, f"Name at least one {label[:-1]}.")
+    return list(args.names)
+
+
+def _without_legacy_plugins(manifest, names):
+    legacy = {collection: dict(entries) for collection, entries in manifest.legacy.items()}
+    plugins = legacy.get("plugins")
+    if not plugins:
+        return manifest.legacy
+    for name in names:
+        plugins.pop(name, None)
+    if not plugins:
+        legacy.pop("plugins", None)
+    return {collection: entries for collection, entries in legacy.items() if entries}
+
+
+def _validate_agent(catalog, names, declared=()):
+    declared = set(declared)
+    for name in names:
+        art = cat.get(catalog, cat.AGENT, name)
+        if art is None:
+            if name in declared:
+                continue
+            raise common.Refusal(errors.NOT_FOUND, f"'{name}' is not a known standalone agent.")
+        if not art.source.is_file():
+            if name in declared:
+                continue
+            raise common.Refusal(errors.NOT_FOUND, f"'{name}' is missing from the catalog at {art.source}.")
+        if art.catalog_error:
+            raise common.Refusal(errors.DRIFT, f"Cannot install '{name}': {art.catalog_error}.")
+
+
+def _validate_bundle(catalog, names):
+    bundles = cat.bundles(catalog)
+    for name in names:
+        bundle = bundles.get(name)
+        if bundle is None:
+            raise common.Refusal(errors.NOT_FOUND, f"'{name}' is not a known bundle.")
+        if not bundle.source.is_dir():
+            raise common.Refusal(errors.NOT_FOUND, f"'{name}' is missing from the catalog at {bundle.source}.")
+        if bundle.catalog_error:
+            raise common.Refusal(errors.DRIFT, f"Cannot install '{name}': {bundle.catalog_error}.")
+
+
+def _project_active(args, machine, catalog_root, catalog, project, manifest):
+    kind = args.type
+    names = _explicit_names(args, f"{kind}s")
+    if kind == cat.AGENT:
+        _validate_agent(catalog, names, manifest.agents)
+        additions = set(names) - set(manifest.agents)
+        declaration = state.upgrade(manifest, agents=tuple(sorted(set(manifest.agents) | set(names))))
+        noun = "agent"
+    else:
+        _validate_bundle(catalog, names)
+        additions = set(names) - set(manifest.bundles)
+        legacy = _without_legacy_plugins(manifest, additions)
+        declaration = state.upgrade(manifest, bundles=tuple(sorted(set(manifest.bundles) | set(names))))
+        if legacy != manifest.legacy:
+            declaration = replace(declaration, legacy=legacy)
+        noun = "bundle"
+    plan = views.project_plan(
+        catalog,
+        catalog_root,
+        paths.home(),
+        project,
+        manifest,
+        declaration,
+        machine.global_harnesses,
+        machine_config=machine,
+    )
+    common.refuse_plan(plan, f"add the selected {noun}s")
+    healthy = not additions and not plan.actions and not plan.missing
+    if healthy:
+        raise common.Refusal(errors.ALREADY, f"'{names[0]}' is already configured and current.")
+    common.apply_plan(plan, [common.manifest_action(project, declaration, manifest)])
+    common.report_actions(plan.ordered_actions())
+    common.warn_global_fallbacks(plan)
+    for name in sorted(additions):
+        ui.ok(f"Added '{name}' to {ui.path(state.path_for(project))}")
+    ui.done(f"{len(additions)} {noun} changes, {plan.changes} link changes")
+    return errors.DRIFT if plan.missing else errors.OK
+
+
 def run(args):
     def operation():
+        if args.type == cat.PLUGIN:
+            _plugin_refusal()
+        if args.type in PROJECT_ONLY and args.want_global:
+            _refuse_project_only(args.type)
+        if args.type != cat.SKILL and args.group is not None:
+            _explicit_names(args, f"{args.type}s")
         project = manifest = None
         if not args.want_global:
             project = common.project_root()
             manifest = common.manifest(project)
         machine, catalog_root = common.machine()
         catalog = common.loaded_catalog(catalog_root)
+        if args.type != cat.SKILL:
+            return _project_active(args, machine, catalog_root, catalog, project, manifest)
         effective = scope.global_set(catalog)
         names, elsewhere = _selected_names(catalog, args, effective)
         _validate_direct(
