@@ -1,6 +1,6 @@
 # kura
 
-Kura is a stdlib-only Python package that projects one declared skill set into the native skill directories of selected coding-agent harnesses.
+Kura is a stdlib-only Python package that projects declared skills, standalone agents, and portable agent bundles into the native directories of selected coding-agent harnesses.
 The first profiles are Claude Code and Pi.
 
 The package lives under [kura/](kura), and [bin/kura](bin/kura) is only a development shim.
@@ -8,19 +8,19 @@ A release is a deterministic executable zipapp built by [build.py](build.py).
 
 ## Domain boundaries
 
-A catalog owns skill content.
+A catalog owns skill content, standalone agent content, and portable bundle content.
 Optional registry metadata adds groups, dependencies, global policy, and upstream source information.
 A project manifest owns portable project intent.
-Machine configuration owns globally enabled harnesses.
+Machine configuration owns globally enabled harnesses and Pi agent view paths.
 The catalog has one fixed machine location.
 Native views are derived filesystem state and never become another source of truth.
 
-Kura manages skills only in this phase.
-Legacy agent and plugin intent may be preserved in a project manifest, but it is inert.
-Kura does not launch harnesses, translate resource formats, select a default harness, or maintain an index of initialized projects.
+Kura manages skills, standalone Markdown agents, and portable bundles.
+Legacy plugin intent may be preserved in a project manifest, but it is inert and plugin commands refuse with migration guidance.
+Kura does not launch harnesses, install Pi extensions, translate non-Markdown agent formats, select a default harness, or maintain an index of initialized projects.
 
 The domain vocabulary is in [CONTEXT.md](CONTEXT.md).
-The accepted behavior is in [docs/specs/multi-harness-skills.md](docs/specs/multi-harness-skills.md) and [docs/specs/multi-harness-skills-ux.md](docs/specs/multi-harness-skills-ux.md).
+The original skill behavior is in [docs/specs/multi-harness-skills.md](docs/specs/multi-harness-skills.md) and [docs/specs/multi-harness-skills-ux.md](docs/specs/multi-harness-skills-ux.md); the agent and bundle extension is in [docs/design/portable-agent-bundles.md](docs/design/portable-agent-bundles.md).
 
 ## Roots and configuration
 
@@ -49,38 +49,42 @@ Read-oriented commands may use the fixed catalog without machine configuration, 
 ## Harness profiles
 
 [kura/harnesses.py](kura/harnesses.py) is the built-in declarative profile registry.
-Each profile supplies a stable ID, display name, executable, native project skill root, native global skill root, and project footprints used by initialization suggestions.
+Each profile supplies a stable ID, display name, executable, native project skill root, native global skill root, native agent roots, and project footprints used by initialization suggestions.
 
-| Harness | Project skill root | Global skill root |
-|---|---|---|
-| Claude Code | `.claude/skills` | `~/.claude/skills` |
-| Pi | `.agents/skills` | `~/.agents/skills` |
+| Harness | Project skill root | Global skill root | Project agent root | Global agent root |
+|---|---|---|---|---|
+| Claude Code | `.claude/skills` | `~/.claude/skills` | `.claude/agents` | `~/.claude/agents` |
+| Pi | `.agents/skills` | `~/.agents/skills` | `pi.agents.project` | `pi.agents.global` |
 
 Executable detection does not decide whether skills are linked.
 A project may prepare a native view before a harness is installed.
 Executables matter only for initialization evidence and trust eligibility.
 
-A selected skill gets one direct catalog link in each selected harness.
+A selected skill or agent gets one direct catalog link in each selected harness.
 No native view points through another harness.
-This replaces the old `.agents/skills -> ../.claude/skills` topology, which made Claude Code's directory an accidental canonical store.
+This preserves the old skill contract while adding independent agent views.
+It also preserves the historical replacement of the old `.agents/skills -> ../.claude/skills` topology, which made Claude Code's directory an accidental canonical store.
+Pi agent views are only configured Markdown directories for a compatible subagent extension; Kura does not install or prove that extension.
 
 Version-sensitive trust behavior does not belong in profiles.
 Claude Code trust remains in [kura/workspace.py](kura/workspace.py), and Pi trust remains in [kura/pi_trust.py](kura/pi_trust.py).
 
 ## Filesystem-first catalog
 
-[kura/catalog.py](kura/catalog.py) discovers every `skills/<name>/SKILL.md` before applying metadata.
-This makes the minimum catalog useful without a registry.
-A registry-free skill is project-scoped, has no groups or dependencies, has no durable global policy, and has no upstream update source.
+[kura/catalog.py](kura/catalog.py) discovers every `skills/<name>/SKILL.md`, `agents/<name>.md`, and `bundles/<name>/bundle.json` before applying metadata.
+This makes the minimum skill catalog useful without a registry, and makes a self-contained bundle such as `bundles/backend/bundle.json` with `{}` valid when it owns at least one agent and one skill.
+A registry-free skill or agent is project-scoped, has no groups or dependencies, has no durable global policy, and has no upstream update source.
 
-When `skill-registry.json` exists, its entries are merged onto discovered skills.
+When `skill-registry.json` or `agent-registry.json` exists, its entries are merged onto discovered root artifacts.
 Registered but absent sources remain representable so `list` and `doctor` can report missing content.
-For metadata-backed skills, the registry name, directory name, and frontmatter name must agree.
-A mismatch is attached to the catalog artifact and blocks planning that skill.
+For metadata-backed skills and agents, the registry name, source name, and directory or file name must agree.
+A mismatch is attached to the catalog artifact and blocks planning that artifact.
+Root registry `local` groups are valid, including `global`.
+Bundle-owned agents and skills are selected through their bundle, not by independent root selection.
 
 Dependency closure is recursive, deterministic, and cycle-safe.
-The project closure begins with the direct names in `kura.json`.
-The global closure begins with metadata-backed skills carrying the `global` group.
+The project closure begins with the direct skill, agent, and bundle names in `kura.json`.
+The global closure begins with metadata-backed skills and standalone agents carrying the `global` group, and includes skill dependencies.
 Dependencies are never written to the project manifest.
 
 `update` and `outdated` act only on skills whose metadata supplies an upstream source.
@@ -89,7 +93,8 @@ A filesystem-only skill is therefore visible to `list` and installable without b
 ## Declarative project state
 
 [kura/state.py](kura/state.py) owns `<project>/kura.json`.
-The versioned schema stores sorted selected harness IDs, sorted direct skill names, and optional inert legacy rows.
+The versioned schema stores sorted selected harness IDs, sorted direct skill names, sorted standalone agent names, sorted bundle names, and optional inert legacy rows.
+Version 1 manifests remain skill-only and are upgraded to version 2 when new agent or bundle intent is written in a successful project mutation.
 Strict parsing rejects duplicates, malformed values, unknown harnesses, and unknown schema versions.
 
 The manifest is intended for version control and may be edited by a user.
@@ -106,12 +111,12 @@ If global policy disappears later, project convergence recreates its project lin
 
 ## Desired state
 
-Let `direct` be the project manifest's skill names.
-Let `closure(direct)` be the recursive dependency closure from current metadata.
-Let `global` be the recursive closure of metadata-backed global roots.
+Let `direct` be the project manifest's skill names, agent names, and bundle names.
+Let `closure(direct)` be the recursive dependency and bundle closure from current metadata and bundle requirements.
+Let `global` be the recursive closure of metadata-backed global skill roots and standalone global agent roots.
 
 The project intent is `closure(direct)`.
-For each selected harness, the project native view is `closure(direct)` minus skills with a current global link in that enabled harness.
+For each selected harness, the project native skill view is the skill closure minus skills with a current global link in that enabled harness, and the project native agent view is the selected standalone and bundle-owned agent closure.
 The durable global native view is `global` in every globally enabled harness.
 Temporary global additions may exist until the next `sync`.
 
@@ -127,7 +132,8 @@ A missing dependency blocks the transaction because there is no complete desired
 [kura/views.py](kura/views.py) classifies and plans native links.
 A desired destination can be missing, current, stale but catalog-managed, foreign, or a real path.
 
-A link is manageable only when it occupies the expected harness path and resolves under the fixed catalog's `skills` directory.
+A skill link is manageable only when it occupies the expected harness path and resolves under the fixed catalog's `skills` directory or an exact declared bundle-owned skill source.
+An agent link is manageable only when it occupies the expected harness path and resolves under the fixed catalog's root `agents` directory or an exact declared bundle-owned agent path.
 A project deletion is further limited to names derived from the old or current project declaration for that transaction.
 A real path is always user-owned.
 A symlink outside the recognized catalog is always foreign.
@@ -171,7 +177,10 @@ Existing split files are never rewritten automatically.
 Re-running `init` replaces selected harnesses and retains direct skills.
 Removing a harness deletes only links proven managed from the previous project declaration.
 
-`add` and `remove` modify direct skill names, derive the new closure, reconcile all selected views, and write the manifest last.
+`add` and `remove` modify direct skill, standalone agent, or bundle names, derive the new closure, reconcile all selected views, and write the manifest last.
+They require explicit `--type skill`, `--type agent`, or `--type bundle` for project artifacts.
+`--type plugin` parses but refuses because Claude Code plugins are legacy state, not portable bundles.
+Typed non-skill global operations and typed non-skill unsupported commands refuse rather than pretending to manage partial state.
 `remove --no-cascade` remains parseable as a deprecated compatibility option, but dependency presence is defined by declarative closure rather than historical provenance.
 
 `adopt` considers catalog-backed links in selected harnesses.
@@ -185,9 +194,11 @@ Claude Code's private project registry and a Kura project index are not consulte
 
 ## Global lifecycle
 
-`sync` derives global policy once and reconciles every globally enabled harness.
-It prunes only symlinks resolving under the current catalog.
-Real paths, foreign links, and legacy agent or plugin state are outside its ownership.
+Bare `sync` derives global skill policy and standalone global agent policy once and reconciles every globally enabled harness.
+It includes skill dependencies required by global agents.
+`sync --type skill` narrows to skills.
+It prunes only symlinks resolving under the current catalog and exact managed agent sources.
+Real paths, foreign links, and legacy plugin state are outside its ownership.
 
 The empty-desired guard remains load-bearing.
 When desired global state is empty and managed state is also empty, sync succeeds.
@@ -211,9 +222,9 @@ A configured skill is `linked` only when every required native view is current.
 Any missing, stale, foreign, or real-path view makes the row `drift` and names each harness.
 JSON stdout contains only JSON, while initialization notices remain on stderr.
 
-`doctor` orders actionable drift before informational notes.
-Invalid machine configuration, invalid manifests, missing content, dependency failures, collisions, and incorrect native views return `DRIFT`.
-Missing executables, trust not granted, split instructions, and preserved legacy state are notes.
+Bare `doctor` orders actionable drift before informational notes across implemented skill and agent behavior.
+Invalid machine configuration, invalid manifests, missing content, dependency failures, missing required Pi agent paths, collisions, and incorrect native views return `DRIFT`.
+Missing executables, trust not granted, split instructions, the need to enable a Markdown-compatible Pi subagent extension, and preserved legacy state are notes.
 It can run without a project manifest and still checks the fixed catalog and global state.
 
 ## Trust adapters
