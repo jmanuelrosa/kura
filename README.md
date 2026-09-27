@@ -53,7 +53,7 @@ Executable detection affects initialization suggestions and trust eligibility, b
 Each skill or agent gets an independent native link.
 Pi never points through Claude Code's directory.
 Pi agent roots are only paths for a Markdown-compatible subagent extension to read.
-Kura does not install that extension.
+Kura does not install that extension or configure it to discover the catalog directly: Kura links catalog agents into the configured Pi agent directory, which the extension must be set up to read.
 
 ## Machine configuration
 
@@ -74,7 +74,18 @@ Kura stores machine configuration at `${XDG_CONFIG_HOME:-~/.config}/kura/config.
 
 `globalHarnesses` must be sorted, unique, non-empty, and contain only `claude` or `pi`.
 `pi.agents.global` and `pi.agents.project` are optional until a global or project Pi agent view is needed.
+Set the paths to the agent directories your Pi subagent extension reads; Kura creates links there, not a Pi catalog setting.
 The catalog path is not machine configuration and cannot be changed.
+
+### Use catalog agents in Pi
+
+Add standalone Markdown agents as `~/.config/kura/catalog/agents/<name>.md`.
+For example, `~/.config/kura/catalog/agents/architect.md` is discovered automatically; no `agent-registry.json` is required unless you want metadata such as the `global` group.
+Configure Pi's agent view paths in `config.json` as above, using the directories read by your installed Pi subagent extension.
+Then run `kura config --harness pi --yes` to enable Pi as a global harness, or include `pi` when configuring global harnesses.
+For project agents, run `kura init --harness pi --yes` in the project and `kura add architect --type agent`; Kura links it under the configured project agent path.
+For agents marked with the `global` group in `agent-registry.json`, run `kura sync` to create global links under the configured global agent path.
+Kura's job ends at creating those links; install/configure a Pi extension that reads that directory to make the agents available to Pi.
 
 ## Project manifest
 
