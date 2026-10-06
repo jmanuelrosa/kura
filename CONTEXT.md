@@ -5,7 +5,7 @@ Kura coordinates reusable coding-agent artifacts across the harnesses a user cho
 ## Artifacts and sources
 
 **Harness**:
-A coding-agent application through which a user works, such as Pi or Claude Code.
+A coding-agent application through which a user works, such as Pi, Claude Code or Codex.
 _Avoid_: Agent, client, provider
 
 **Agent**:
