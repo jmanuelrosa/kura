@@ -56,6 +56,21 @@ def _machine(harnesses=("claude", "pi"), *, pi_global="~/.pi/agent/agents"):
     return config.Config(tuple(sorted(harnesses)), extra)
 
 
+def test_human_agent_listing_marks_global_installs(home, monkeypatch, capsys):
+    root = _catalog(home)
+    _write_agent(root, "architect")
+    config.write(_machine(), home)
+    monkeypatch.chdir(home)
+    assert cli.main(["sync"]) == errors.OK
+    capsys.readouterr()
+
+    assert cli.main(["list", "--type", "agent"]) == errors.OK
+
+    output = capsys.readouterr().out
+    assert "✓ architect (linked: claude, pi) (global)" in output
+    assert str(root) not in output
+
+
 def test_pi_agent_conflict_prevents_claude_global_writes(home, capsys):
     root = _catalog(home)
     helper = _write_skill(root, "helper")
