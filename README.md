@@ -423,3 +423,5 @@ make checksum
 Runtime code uses only the Python standard library.
 Tests may use pytest and PyYAML as an oracle for the intentionally narrow frontmatter scanner.
 The release zipapp is deterministic: source members are sorted and receive fixed archive timestamps.
+Repository admins can start a release manually from the GitHub **Release** workflow with a `version` input; the workflow bumps the version only in the release tag and leaves the default branch unchanged.
+See [RELEASING.md](RELEASING.md) for the workflow and local verification checklist.
