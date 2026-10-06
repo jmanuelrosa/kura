@@ -77,6 +77,11 @@ def test_list_type_agent_omits_bundle_owned_agents_which_list_under_their_bundle
     assert bundle["views"]["claude agent backend"]["state"] == "linked"
     assert bundle["views"]["pi agent backend"]["state"] == "linked"
 
+    assert cli.main(["list", "--type", "agent"]) == errors.OK
+    output = capsys.readouterr().out
+    assert "✓ architect (linked: claude, pi)" in output
+    assert str(root) not in output
+
 
 def test_list_type_bundle_requires_all_member_links_current(home, project, monkeypatch, capsys):
     root = _catalog(home)
@@ -96,12 +101,24 @@ def test_list_type_bundle_requires_all_member_links_current(home, project, monke
     assert cli.main(["list", "--type", "bundle", "--json"]) == errors.OK
     rows = json.loads(capsys.readouterr().out)
     assert rows[0]["state"] == "linked"
+    assert rows[0]["views"]["claude skill backend"]["target"] == str(bundle_skill)
+    assert rows[0]["views"]["pi agent backend"]["target"] == str(bundle_agent)
+
+    assert cli.main(["list", "--type", "bundle"]) == errors.OK
+    output = capsys.readouterr().out
+    assert "✓ backend (linked: claude, pi)" in output
+    assert str(root) not in output
 
     harnesses.agent_path("pi", "backend", home, project, machine).unlink()
     assert cli.main(["list", "--type", "bundle", "--json"]) == errors.OK
     rows = json.loads(capsys.readouterr().out)
     assert rows[0]["state"] == "drift"
     assert rows[0]["views"]["pi agent backend"]["state"] == "missing"
+
+    assert cli.main(["list", "--type", "bundle"]) == errors.OK
+    output = capsys.readouterr().out
+    assert "pi agent backend missing" in output
+    assert str(root) not in output
 
 
 def test_list_type_bundle_does_not_include_unrelated_project_intent(home, project, monkeypatch, capsys):

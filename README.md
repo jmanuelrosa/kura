@@ -236,7 +236,9 @@ kura list --type {skill,agent,bundle} [--group [TAG]] [--json]
 
 Without a project manifest, `list` shows catalog and global state and sends an initialization notice to stderr.
 With a manifest, a skill is linked only when every selected native view is correct.
-Partial or conflicting state is `drift` and names each harness.
+Human rows show each linked harness once, for example `backend (linked: claude, pi)`, and mark global installs with `(global)`.
+Partial or conflicting state is `drift` and names each harness and affected bundle member without printing paths.
+Link targets remain available in `--json`.
 Bare `--group` groups the human report by registry group tag.
 `--group TAG` filters by one opaque tag.
 `--json` emits only JSON on stdout.

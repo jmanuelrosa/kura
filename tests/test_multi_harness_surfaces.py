@@ -227,7 +227,9 @@ def test_listing_keeps_physical_installation_and_foreign_targets_in_json(
     assert cli.main(["list", "--type", "skill"]) == errors.OK
     captured = capsys.readouterr()
     assert "2 configured" in captured.out
-    assert str(foreign) in captured.out
+    assert "parent (drift: claude linked; pi foreign)" in captured.out
+    assert str(foreign) not in captured.out
+    assert str(catalog) not in captured.out
     assert captured.err == ""
 
 

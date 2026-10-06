@@ -61,6 +61,24 @@ def initialize(catalog):
     )
 
 
+@pytest.mark.parametrize("grouped", (False, True))
+def test_human_listing_shows_harnesses_and_global_installs(setup, capsys, grouped):
+    home, project, catalog = setup
+    assert initialize(catalog) == errors.OK
+    assert cli.main(["add", "review", "--type", "skill"]) == errors.OK
+    capsys.readouterr()
+
+    args = ["list", "--type", "skill"]
+    if grouped:
+        args.append("--group")
+    assert cli.main(args) == errors.OK
+
+    output = capsys.readouterr().out
+    assert "✓ review (linked: claude, pi)" in output
+    assert "✓ global-tool (linked: claude, pi) (global)" in output
+    assert str(catalog) not in output
+
+
 def test_machine_config_round_trip_preserves_unknown_fields_and_drops_old_catalog():
     parsed = config.parse(
         {

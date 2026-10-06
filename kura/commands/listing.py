@@ -283,12 +283,14 @@ def rows(catalog, catalog_root, machine, home, project, manifest, group=None):
 def _view_detail(row):
     if not row["views"]:
         return ""
-    values = []
-    for harness_id, detail in row["views"].items():
-        suffix = f" -> {detail['target']}" if "target" in detail else ""
-        values.append(f"{harness_id} {detail['state']}{suffix}")
-    prefix = "linked" if row["state"] == LINKED else "drift"
-    return f" ({prefix}: {'; '.join(values)})"
+    if row["state"] == LINKED:
+        harness_ids = sorted({key.split(" ", 1)[0] for key in row["views"]})
+        return f" (linked: {', '.join(harness_ids)})"
+    values = [
+        f"{name} {detail['state']}"
+        for name, detail in row["views"].items()
+    ]
+    return f" (drift: {'; '.join(values)})"
 
 
 def format_row(row, indent="  ", show_groups=True):
@@ -301,6 +303,8 @@ def format_row(row, indent="  ", show_groups=True):
     else:
         marker = f"{colors.paint('·', 'dim')} {row['name']}"
     parts = [indent + marker + _view_detail(row)]
+    if row["installed"] == scope.GLOBAL:
+        parts.append("(global)")
     if show_groups and row["groups"]:
         parts.append(colors.paint("[" + ", ".join(row["groups"]) + "]", "cyan"))
     if row["dependencies"]:
