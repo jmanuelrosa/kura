@@ -106,7 +106,7 @@ def _agent_rows(catalog, catalog_root, machine, home, project, manifest):
     for art in cat.visible(catalog, cat.AGENT):
         selected_source = project_agents.get(art.name)
         is_configured = selected_source is not None and selected_source.source == art.source
-        is_global = art.metadata and art.tagged_global
+        is_global = art.tagged_global
         project_views = _agent_views(catalog_root, home, project, machine, selected if is_configured else (), art.name, art, exact_sources)
         global_views = _agent_views(catalog_root, home, None, machine, global_ids if is_global else (), art.name, art)
         if is_configured and is_global:
@@ -125,16 +125,6 @@ def _agent_rows(catalog, catalog_root, machine, home, project, manifest):
         row_state = MISSING if not on_disk else LINKED if healthy else DRIFT if is_configured or is_global else AVAILABLE
         installed = scope.GLOBAL if healthy and is_global else scope.PROJECT if healthy else None
         output.append({"name": art.name, "state": row_state, "installed": installed, "global": is_global, "groups": tuple(sorted(set(art.groups))), "dependencies": tuple(sorted(set(art.dependencies))), "reason": state.DIRECT if manifest and art.name in manifest.agents else None, "parent": None, "global_for": (), "views": view_map})
-    bundle_map = cat.bundles(catalog)
-    for bundle_name in sorted(bundle_map):
-        bundle = bundle_map[bundle_name]
-        for art in bundle.agents:
-            name = art.name
-            is_configured = name in project_agents and bundle_name in (manifest.bundles if manifest else ())
-            view_map = _agent_views(catalog_root, home, project, machine, selected if is_configured else (), name, art, exact_sources)
-            healthy = bool(view_map) and all(value["state"] == views.CURRENT for value in view_map.values())
-            row_state = LINKED if is_configured and healthy else DRIFT if is_configured else AVAILABLE
-            output.append({"name": name, "state": row_state, "installed": scope.PROJECT if healthy else None, "global": False, "groups": (), "dependencies": (), "reason": state.dep_of(bundle_name) if is_configured else None, "parent": bundle_name if is_configured else None, "global_for": (), "views": view_map})
     missing = set(manifest.agents if manifest else ()) - set(project_agents)
     for name in sorted(missing):
         output.append({"name": name, "state": MISSING, "installed": None, "global": False, "groups": (), "dependencies": (), "reason": state.DIRECT, "parent": None, "global_for": (), "views": _unknown_agent_views(home, project, machine, selected, name)})
@@ -166,7 +156,8 @@ def _bundle_rows(catalog, catalog_root, machine, home, project, manifest):
         skill_map, agent_map = views.project_sources(catalog, bundle_intent) if selected_bundle else ({}, {})
         view_map = _member_views(catalog_root, home, project, machine, selected, skill_map, agent_map) if selected_bundle else {}
         healthy = bool(view_map) and all(value["state"] == views.CURRENT for value in view_map.values())
-        output.append({"name": name, "state": LINKED if healthy else DRIFT if selected_bundle else AVAILABLE, "installed": scope.PROJECT if healthy else None, "global": False, "groups": (), "dependencies": tuple(sorted((*bundle.requires_skills, *bundle.requires_agents))), "reason": state.DIRECT if selected_bundle else None, "parent": None, "global_for": (), "views": view_map})
+        row_state = MISSING if not bundle.source.is_dir() else LINKED if healthy else DRIFT if selected_bundle else AVAILABLE
+        output.append({"name": name, "state": row_state, "installed": scope.PROJECT if healthy else None, "global": False, "groups": (), "dependencies": tuple(sorted((*bundle.requires_skills, *bundle.requires_agents))), "reason": state.DIRECT if selected_bundle else None, "parent": None, "global_for": (), "views": view_map})
     for name in sorted(set(manifest.bundles if manifest else ()) - set(bundle_map)):
         output.append({"name": name, "state": MISSING, "installed": None, "global": False, "groups": (), "dependencies": (), "reason": state.DIRECT, "parent": None, "global_for": (), "views": {}})
     return output

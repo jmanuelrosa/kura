@@ -9,7 +9,7 @@ A release is a deterministic executable zipapp built by [build.py](build.py).
 ## Domain boundaries
 
 A catalog owns skill content, standalone agent content, and portable bundle content.
-Optional registry metadata adds groups, dependencies, global policy, and upstream source information.
+Its registries decide which of that content exists, and add groups, dependencies, global policy, and upstream source information.
 A project manifest owns portable project intent.
 Machine configuration owns globally enabled harnesses and Pi agent view paths.
 The catalog has one fixed machine location.
@@ -26,7 +26,7 @@ The original skill behavior is in [docs/specs/multi-harness-skills.md](docs/spec
 
 There are three explicit locations.
 
-1. `~/.config/kura/catalog` contains source skills.
+1. `~/.config/kura/catalog` contains the registries and the skill, agent, and bundle sources they name.
 2. `${XDG_CONFIG_HOME:-~/.config}/kura/config.json` contains machine configuration.
 3. Cwd is the exact project for every project command.
 
@@ -69,26 +69,31 @@ Pi agent views are only configured Markdown directories for a compatible subagen
 Version-sensitive trust behavior does not belong in profiles.
 Claude Code trust remains in [kura/workspace.py](kura/workspace.py), and Pi trust remains in [kura/pi_trust.py](kura/pi_trust.py).
 
-## Filesystem-first catalog
+## Registry-first catalog
 
-[kura/catalog.py](kura/catalog.py) discovers every `skills/<name>/SKILL.md`, `agents/<name>.md`, and `bundles/<name>/bundle.json` before applying metadata.
-This makes the minimum skill catalog useful without a registry, and makes a self-contained bundle such as `bundles/backend/bundle.json` with `{}` valid when it owns at least one agent and one skill.
-A registry-free skill or agent is project-scoped, has no groups or dependencies, has no durable global policy, and has no upstream update source.
+[kura/catalog.py](kura/catalog.py) builds the catalog from `skill-registry.json`, `agent-registry.json`, and `bundle-registry.json`, and derives each source path from the registered name as `skills/<name>/`, `agents/<name>.md`, or `bundles/<name>/`.
+A source on disk with no registry entry is ignored by every command, so a stray or half-copied file cannot become installable; `doctor` reports each one as an `unregistered` note without changing its exit code.
+A missing registry file means no artifacts of that type rather than a refusal, and the non-empty guard on `sync` keeps that from pruning global links.
+The reasoning is recorded in [ADR 0006](docs/adr/0006-registries-are-the-catalog.md).
 
-When `skill-registry.json` or `agent-registry.json` exists, its entries are merged onto discovered root artifacts.
 Registered but absent sources remain representable so `list` and `doctor` can report missing content.
-For metadata-backed skills and agents, the registry name, source name, and directory or file name must agree.
+The registry name, the directory or file name, and the frontmatter name must agree.
 A mismatch is attached to the catalog artifact and blocks planning that artifact.
 Root registry `local` groups are valid, including `global`.
-Bundle-owned agents and skills are selected through their bundle, not by independent root selection.
+
+A registered bundle directory must contain `bundle.json`, which declares its `requires` and may be `{}` for a self-contained bundle that owns at least one agent and one skill.
+A registered bundle directory without `bundle.json` is a catalog error.
+Bundle registry rows may carry `name`, `note`, `updated_at`, and upstream fields, but refuse `groups`, `dependencies`, and `dependency_only` until global bundles are designed.
+Bundle-owned agents and skills are never registry entries: registering the bundle covers them, and they are selected through their bundle rather than by independent root selection.
+`list --type agent` therefore shows only registered root agents, while bundle-owned agents appear as member views under `list --type bundle`.
 
 Dependency closure is recursive, deterministic, and cycle-safe.
 The project closure begins with the direct skill, agent, and bundle names in `kura.json`.
-The global closure begins with metadata-backed skills and standalone agents carrying the `global` group, and includes skill dependencies.
+The global closure begins with registered skills and standalone agents carrying the `global` group, and includes skill dependencies.
 Dependencies are never written to the project manifest.
 
-`update` and `outdated` act only on skills whose metadata supplies an upstream source.
-A filesystem-only skill is therefore visible to `list` and installable without becoming an update target.
+`update` and `outdated` act only on skills whose registry entry supplies an upstream source.
+A `local` skill is therefore visible to `list` and installable without becoming an update target.
 
 ## Declarative project state
 
@@ -112,8 +117,8 @@ If global policy disappears later, project convergence recreates its project lin
 ## Desired state
 
 Let `direct` be the project manifest's skill names, agent names, and bundle names.
-Let `closure(direct)` be the recursive dependency and bundle closure from current metadata and bundle requirements.
-Let `global` be the recursive closure of metadata-backed global skill roots and standalone global agent roots.
+Let `closure(direct)` be the recursive dependency and bundle closure from current registries and bundle requirements.
+Let `global` be the recursive closure of registered global skill roots and standalone global agent roots.
 
 The project intent is `closure(direct)`.
 For each selected harness, the project native skill view is the skill closure minus skills with a current global link in that enabled harness, and the project native agent view is the selected standalone and bundle-owned agent closure.
@@ -224,7 +229,7 @@ JSON stdout contains only JSON, while initialization notices remain on stderr.
 
 Bare `doctor` orders actionable drift before informational notes across implemented skill and agent behavior.
 Invalid machine configuration, invalid manifests, missing content, dependency failures, missing required Pi agent paths, collisions, and incorrect native views return `DRIFT`.
-Missing executables, trust not granted, split instructions, the need to enable a Markdown-compatible Pi subagent extension, and preserved legacy state are notes.
+Missing executables, trust not granted, split instructions, the need to enable a Markdown-compatible Pi subagent extension, catalog sources with no registry entry, and preserved legacy state are notes.
 It can run without a project manifest and still checks the fixed catalog and global state.
 
 ## Trust adapters

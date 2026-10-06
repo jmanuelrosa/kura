@@ -13,6 +13,7 @@ names the suite was written against, so a case still reads concretely, but the
 properties those names carry are now fixed here rather than borrowed.
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -65,3 +66,20 @@ def ensure_importable():
     """
     if str(TOOL) not in sys.path:
         sys.path.insert(0, str(TOOL))
+
+
+def register(root, kind, name, **fields):
+    """Give `name` a `local` row in the registry for `kind` under catalog `root`.
+
+    The catalog is registry-first, so a test that writes a source without this has
+    written something kura ignores. A row already carrying the name is replaced, so
+    a writer can be called twice for one artifact.
+    """
+    from kura import catalog as cat
+
+    path = root / cat.REGISTRY_FILE[kind]
+    registry = json.loads(path.read_text()) if path.is_file() else {}
+    rows = [row for row in registry.get("local", []) if row.get("name") != name]
+    registry["local"] = [*rows, {"name": name, **fields}]
+    root.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(registry))

@@ -24,16 +24,17 @@ _Avoid_: Installation, native view
 A named, selectable collection of agents and skills kept together in the catalog.
 _Avoid_: Claude plugin, Pi extension
 
-**Registry metadata**:
-Optional catalog information that adds policy and relationships to artifacts without owning their content.
-_Avoid_: Catalog, manifest
+**Registry**:
+The catalog file for one artifact type that is the source of truth for which skills, agents, or bundles exist, and that adds their policy and relationships without owning their content.
+A source with no registry entry does not exist for Kura.
+_Avoid_: Registry metadata, manifest
 
 **Direct skill intent**:
 A project declaration that a user wants a skill independently of any other skill.
 _Avoid_: Installed skill
 
 **Dependency skill**:
-A skill required by direct skill intent and derived from current registry metadata.
+A skill required by direct skill intent and derived from the current skill registry.
 _Avoid_: Direct skill
 
 ## Scope and views

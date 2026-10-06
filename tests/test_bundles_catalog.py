@@ -1,24 +1,29 @@
 import json
 
 import pytest
+from kit_helpers import register
 
 from kura import catalog as cat
 
 
-def write_skill(root, name, *, frontmatter=None):
+def write_skill(root, name, *, frontmatter=None, registered=True):
     directory = root / "skills" / name
     directory.mkdir(parents=True)
     block = frontmatter or f"name: {name}"
     (directory / "SKILL.md").write_text(f"---\n{block}\n---\n")
+    if registered:
+        register(root, cat.SKILL, name)
     return directory
 
 
-def write_agent(root, name, *, frontmatter=None):
+def write_agent(root, name, *, frontmatter=None, registered=True):
     directory = root / "agents"
     directory.mkdir(parents=True, exist_ok=True)
     block = frontmatter or f"name: {name}\ndescription: Fixture agent {name}."
     path = directory / f"{name}.md"
     path.write_text(f"---\n{block}\n---\n")
+    if registered:
+        register(root, cat.AGENT, name)
     return path
 
 
@@ -26,8 +31,9 @@ def write_bundle(root, name, *, marker=None, agent=None, skill=None):
     directory = root / "bundles" / name
     directory.mkdir(parents=True)
     (directory / "bundle.json").write_text(json.dumps(marker if marker is not None else {}))
-    write_agent(directory, agent or name)
-    write_skill(directory, skill or name)
+    write_agent(directory, agent or name, registered=False)
+    write_skill(directory, skill or name, registered=False)
+    register(root, cat.BUNDLE, name)
     return directory
 
 
@@ -55,12 +61,8 @@ def test_bundle_requires_root_artifacts_and_derives_skill_closure(tmp_path):
     write_skill(root, "leaf")
     write_skill(root, "shared")
     write_agent(root, "architect")
-    (root / "skill-registry.json").write_text(
-        json.dumps({"local": [{"name": "shared", "dependencies": ["leaf"]}]})
-    )
-    (root / "agent-registry.json").write_text(
-        json.dumps({"local": [{"name": "architect", "dependencies": ["shared"]}]})
-    )
+    register(root, cat.SKILL, "shared", dependencies=["leaf"])
+    register(root, cat.AGENT, "architect", dependencies=["shared"])
     write_bundle(
         root,
         "backend",
@@ -94,7 +96,8 @@ def test_bundle_requires_at_least_one_agent_and_one_skill(tmp_path):
     directory = root / "bundles" / "backend"
     directory.mkdir(parents=True)
     (directory / "bundle.json").write_text("{}")
-    write_agent(directory, "backend")
+    write_agent(directory, "backend", registered=False)
+    register(root, cat.BUNDLE, "backend")
 
     bundle = cat.bundles(cat.build_catalog(root))["backend"]
     resolution = cat.bundle_resolution(cat.build_catalog(root), ["backend"])
@@ -247,3 +250,34 @@ def test_claude_plugin_manifest_is_not_a_bundle(tmp_path):
 
     assert cat.bundles(catalog) == {}
     assert cat.bundle_resolution(catalog, ["backend"]).missing_bundles == ("backend",)
+
+
+def test_unregistered_bundle_is_not_in_the_catalog(tmp_path):
+    root = tmp_path / "catalog"
+    directory = write_bundle(root, "backend")
+    (root / "bundle-registry.json").unlink()
+
+    catalog = cat.build_catalog(root)
+
+    assert cat.bundles(catalog) == {}
+    assert cat.unregistered(root) == [(cat.BUNDLE, directory)]
+
+
+def test_registered_bundle_without_a_directory_is_absent_not_invalid(tmp_path):
+    root = tmp_path / "catalog"
+    register(root, cat.BUNDLE, "backend")
+
+    bundle = cat.bundles(cat.build_catalog(root))["backend"]
+
+    assert not bundle.source.is_dir()
+    assert bundle.catalog_error is None
+
+
+@pytest.mark.parametrize("key", cat.BUNDLE_UNSUPPORTED_KEYS)
+def test_bundle_registry_refuses_install_policy_keys(tmp_path, key):
+    root = tmp_path / "catalog"
+    write_bundle(root, "backend")
+    register(root, cat.BUNDLE, "backend", **{key: []})
+
+    with pytest.raises(ValueError, match=key):
+        cat.build_catalog(root)

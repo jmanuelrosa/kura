@@ -69,7 +69,24 @@ def catalog_health(catalog):
             findings.append(
                 Finding("catalog-name", PROBLEM, f"bundle '{bundle.name}'", bundle.catalog_error, cat.BUNDLE)
             )
+        if not bundle.source.is_dir():
+            findings.append(
+                Finding("missing-source", PROBLEM, f"bundle '{bundle.name}'", f"missing from {bundle.source}", cat.BUNDLE)
+            )
     return findings
+
+
+def unregistered_notes(sources):
+    return [
+        Finding(
+            "unregistered",
+            NOTE,
+            f"{kind} '{path.stem if kind == cat.AGENT else path.name}'",
+            f"{path} has no entry in {cat.REGISTRY_FILE[kind]}, so kura ignores it",
+            kind,
+        )
+        for kind, path in sources
+    ]
 
 
 def _missing_finding(name, harness_id, source):

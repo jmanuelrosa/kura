@@ -1,12 +1,17 @@
 import json
 
+from kit_helpers import register
+
+from kura import catalog as cat
 from kura import cli, config, errors, state
 
 
-def write_skill(root, name):
+def write_skill(root, name, *, registered=True):
     source = root / "skills" / name
     source.mkdir(parents=True)
     (source / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {name}\n---\n\n# {name}\n")
+    if registered:
+        register(root, cat.SKILL, name)
 
 
 def write_agent(root, name, directory=None, declared=None):
@@ -16,6 +21,8 @@ def write_agent(root, name, directory=None, declared=None):
     path.write_text(
         f"---\nname: {declared or name}\ndescription: {name}\n---\n\n# {name}\n"
     )
+    if directory == root / "agents":
+        register(root, cat.AGENT, name)
     return path
 
 
@@ -107,6 +114,7 @@ def test_doctor_reports_selected_bundle_missing_and_invalid(tmp_path, monkeypatc
     (bundle / "agents").mkdir(parents=True)
     (bundle / "skills" / "broken-skill").mkdir(parents=True)
     (bundle / "bundle.json").write_text("{}")
+    register(catalog, cat.BUNDLE, "broken")
     write_agent(catalog, "broken-agent", bundle / "agents", declared="wrong")
     (bundle / "skills" / "broken-skill" / "SKILL.md").write_text(
         "---\nname: broken-skill\ndescription: broken\n---\n"
@@ -136,6 +144,7 @@ def test_doctor_reports_invalid_catalog_agent_and_bundle(tmp_path, monkeypatch, 
     bundle = catalog / "bundles" / "empty"
     bundle.mkdir(parents=True)
     (bundle / "bundle.json").write_text("{}")
+    register(catalog, cat.BUNDLE, "empty")
     configure(home, ("claude",))
 
     assert cli.main(["doctor"]) == errors.DRIFT
@@ -145,3 +154,30 @@ def test_doctor_reports_invalid_catalog_agent_and_bundle(tmp_path, monkeypatch, 
     assert "bundle 'empty'" in captured.out
     assert "must contain at least one agent and one skill" in captured.out
     assert captured.err == ""
+
+
+def test_doctor_notes_unregistered_sources_without_failing(tmp_path, monkeypatch, capsys):
+    home, project, catalog = workspace(tmp_path, monkeypatch)
+    write_skill(catalog, "stray-skill", registered=False)
+    (catalog / "agents").mkdir()
+    (catalog / "agents" / "stray-agent.md").write_text("---\nname: stray-agent\ndescription: stray\n---\n")
+    bundle = catalog / "bundles" / "stray-bundle"
+    bundle.mkdir(parents=True)
+    (bundle / "bundle.json").write_text("{}")
+    configure(home, ("claude",))
+
+    assert cli.main(["doctor"]) == errors.OK
+    captured = capsys.readouterr()
+    assert "skill 'stray-skill'" in captured.out
+    assert "agent 'stray-agent'" in captured.out
+    assert "bundle 'stray-bundle'" in captured.out
+    assert "0 problem(s)" in captured.out
+
+
+def test_doctor_reports_a_registered_bundle_without_source(tmp_path, monkeypatch, capsys):
+    home, project, catalog = workspace(tmp_path, monkeypatch)
+    register(catalog, cat.BUNDLE, "backend")
+    configure(home, ("claude",))
+
+    assert cli.main(["doctor"]) == errors.DRIFT
+    assert "bundle 'backend': missing from" in capsys.readouterr().out

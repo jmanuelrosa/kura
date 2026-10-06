@@ -3,6 +3,7 @@
 ## Status
 
 Accepted for implementation.
+[ADR 0006](../adr/0006-registries-are-the-catalog.md) supersedes the filesystem-first catalog and registry-free skills described here: a skill now exists only through its `skill-registry.json` entry.
 
 ## Goal
 

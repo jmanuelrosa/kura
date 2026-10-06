@@ -1,5 +1,7 @@
 import json
 
+from kit_helpers import register
+
 from kura import catalog as cat
 from kura import cli, config, errors, harnesses, state, views
 
@@ -171,6 +173,7 @@ def test_project_bundle_uses_current_global_agent_without_duplicate_local_link(h
     (bundle / "agents" / "backend.md").write_text("---\nname: backend\ndescription: Backend.\n---\n")
     _write_skill(bundle, "backend-tool")
     (bundle / "bundle.json").write_text(json.dumps({"requires": {"agents": ["architect"]}}))
+    register(root, cat.BUNDLE, "backend")
     global_link = harnesses.agent_path("claude", "architect", home)
     global_link.parent.mkdir(parents=True)
     global_link.symlink_to(agent)

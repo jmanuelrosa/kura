@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 
 import pytest
+from kit_helpers import register
 
 from kura import catalog as cat
 from kura import cli, config, errors, harnesses, pi_trust, projects, state
@@ -93,15 +94,13 @@ def test_machine_config_rejects_invalid_contracts(field, value):
         config.parse(data)
 
 
-def test_registry_free_skill_is_discovered(tmp_path):
+def test_unregistered_skill_is_ignored_and_only_reported_as_unregistered(tmp_path):
     catalog = tmp_path / "catalog"
     catalog.mkdir()
     (catalog / "skills").mkdir()
     skill(catalog, "local")
-    artifact = cat.get(cat.build_catalog(catalog), cat.SKILL, "local")
-    assert artifact is not None
-    assert artifact.metadata is False
-    assert artifact.dependencies == ()
+    assert cat.get(cat.build_catalog(catalog), cat.SKILL, "local") is None
+    assert cat.unregistered(catalog) == [(cat.SKILL, catalog / "skills" / "local")]
 
 
 def test_manifest_is_versioned_sorted_and_declarative():
@@ -429,6 +428,7 @@ def test_catalog_rejects_a_skill_source_escaping_its_root(setup, tmp_path):
     outside.mkdir()
     (outside / "SKILL.md").write_text("---\nname: escape\n---\n")
     (catalog / "skills" / "escape").symlink_to(outside)
+    register(catalog, cat.SKILL, "escape")
     artifact = cat.get(cat.build_catalog(catalog), cat.SKILL, "escape")
     assert "resolves outside" in artifact.catalog_error
     initialize(catalog)
