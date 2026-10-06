@@ -52,10 +52,12 @@ def _catalog(root, findings):
         return {}
     try:
         catalog = cat.build_catalog(root)
+        stray = cat.unregistered(root)
     except (OSError, ValueError, TypeError, AttributeError) as exc:
         findings.append(Finding("catalog", PROBLEM, "Catalog", f"cannot be read: {exc}"))
         return {}
     findings.extend(checks.catalog_health(catalog))
+    findings.extend(checks.unregistered_notes(stray))
     return catalog
 
 

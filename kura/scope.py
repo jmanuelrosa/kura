@@ -24,7 +24,7 @@ def _derive_global(catalog):
     roots = sorted(
         art.name
         for art in skill_map.values()
-        if art.metadata and art.tagged_global
+        if art.tagged_global
     )
     effective = set()
     parents = {}

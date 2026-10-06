@@ -40,7 +40,7 @@ COMMANDS = {
     "init": "Initialize this exact directory for selected harnesses",
     "config": "Show or change machine configuration",
     "list": "Show skills and their native harness views",
-    "scout": "Recommend metadata-backed skills for the current project",
+    "scout": "Recommend registered skills for the current project",
     "add": "Add direct project intent or temporary global skill links",
     "remove": "Remove direct project intent or temporary global skill links",
     "sync": "Converge registry-global skills across enabled harnesses",
@@ -144,7 +144,7 @@ SCOPE = {
         "Reads the catalog, global native views, and root kura.json in cwd when present."
     ),
     "scout": (
-        "Requires root kura.json in cwd and recommends only metadata-backed project skills."
+        "Requires root kura.json in cwd and recommends only project-scoped catalog skills."
     ),
     "add": (
         "Changes direct intent in root kura.json, or temporary global views with --global."

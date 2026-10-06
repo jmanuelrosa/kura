@@ -1,22 +1,28 @@
 import json
 
+from kit_helpers import register
+
 from kura import catalog as cat
 from kura import config, harnesses, state, views
 from kura.transaction import Transaction
 
 
-def write_skill(root, name):
+def write_skill(root, name, *, registered=True):
     directory = root / "skills" / name
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "SKILL.md").write_text(f"---\nname: {name}\n---\n")
+    if registered:
+        register(root, cat.SKILL, name)
     return directory
 
 
-def write_agent(root, name):
+def write_agent(root, name, *, registered=True):
     directory = root / "agents"
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{name}.md"
     path.write_text(f"---\nname: {name}\ndescription: Fixture agent {name}.\n---\n")
+    if registered:
+        register(root, cat.AGENT, name)
     return path
 
 
@@ -24,8 +30,9 @@ def write_bundle(root, name):
     directory = root / "bundles" / name
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "bundle.json").write_text(json.dumps({}))
-    skill = write_skill(directory, name)
-    agent = write_agent(directory, name)
+    skill = write_skill(directory, name, registered=False)
+    agent = write_agent(directory, name, registered=False)
+    register(root, cat.BUNDLE, name)
     return directory, skill, agent
 
 

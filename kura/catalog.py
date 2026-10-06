@@ -1,12 +1,13 @@
-"""Reading the three artifact sources into one uniform shape.
+"""Reading the catalog's registries into one uniform shape.
 
-Skills and agents come from registries; plugins are discovered by scanning for a
-manifest, because they carry no registry row. Everything below is pure apart from
-build_catalog's reads, so the rules that matter are testable on literal data.
+Skills, agents and bundles exist for kura only when their registry names them; a
+source on disk that no registry names is invisible to every command, and only
+`unregistered` looks for one. Everything below is pure apart from build_catalog's
+reads, so the rules that matter are testable on literal data.
 """
 
 import json
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 
 SKILL = "skill"
@@ -20,12 +21,16 @@ LEAF = {SKILL: "skills", AGENT: "agents", PLUGIN: "skills"}
 # Where each type is STORED in the repo. Distinct from LEAF, and that distinction is
 # load-bearing: since skills and plugins install into the same leaf, the store a
 # symlink points into is the only thing that says which type it is.
-STORE = {SKILL: "skills", AGENT: "agents", PLUGIN: "plugins"}
+STORE = {SKILL: "skills", AGENT: "agents", PLUGIN: "plugins", BUNDLE: "bundles"}
 
-REGISTRY_FILE = {SKILL: "skill-registry.json", AGENT: "agent-registry.json"}
-COLLECTION = {SKILL: "skills", AGENT: "agents"}
-# Agents are single files; skills and plugins are directories.
-SUFFIX = {SKILL: "", AGENT: ".md", PLUGIN: ""}
+REGISTRY_FILE = {
+    SKILL: "skill-registry.json",
+    AGENT: "agent-registry.json",
+    BUNDLE: "bundle-registry.json",
+}
+COLLECTION = {SKILL: "skills", AGENT: "agents", BUNDLE: "bundles"}
+# Agents are single files; skills, plugins and bundles are directories.
+SUFFIX = {SKILL: "", AGENT: ".md", PLUGIN: "", BUNDLE: ""}
 
 PLUGIN_MANIFEST = ".claude-plugin/plugin.json"
 # Claude Code reserves `dependencies` in a plugin manifest. An array of skill
@@ -35,6 +40,9 @@ PLUGIN_DEPS_KEY = "skillDependencies"
 PLUGIN_RESERVED_KEY = "dependencies"
 PLUGIN_REQUIRED_KEYS = ("name", "description", "version")
 BUNDLE_MARKER = "bundle.json"
+# A bundle has no install policy of its own yet, so a registry row carrying one is
+# refused rather than silently ignored.
+BUNDLE_UNSUPPORTED_KEYS = ("groups", "dependencies", "dependency_only")
 
 
 @dataclass(frozen=True)
@@ -53,7 +61,6 @@ class Artifact:
     updated_at: str = None
     # Plugins only: keys present in the manifest, so doctor can flag the traps.
     manifest_keys: tuple = field(default=())
-    metadata: bool = False
     catalog_error: str = None
 
     @property
@@ -220,23 +227,32 @@ def _required_names(value, label):
     return tuple(value)
 
 
-def _metadata_strings(entry, key, artifact_name):
+def _metadata_strings(entry, key, artifact_name, kind):
     value = entry.get(key, [])
     try:
-        return _strings(value, f"registry skill {artifact_name!r} {key}", key == "dependencies")
+        return _strings(value, f"registry {kind} {artifact_name!r} {key}", key == "dependencies")
     except ValueError as exc:
-        raise ValueError(f"registry skill {artifact_name!r} has malformed {key}") from exc
+        raise ValueError(f"registry {kind} {artifact_name!r} has malformed {key}") from exc
+
+
+def _registry(claude, kind):
+    """The registry's upstream block and its (name, entry, repo_key) rows.
+
+    A missing registry file means the catalog has none of that kind, which is safe
+    to read as empty because sync refuses to prune against an empty derived set.
+    """
+    path = claude / REGISTRY_FILE[kind]
+    if not path.is_file():
+        return {}, ()
+    registry = _read_json(path)
+    return registry.get("upstream") or {}, tuple(registry_entries(registry, COLLECTION[kind]))
 
 
 def _from_registry(claude, kind):
-    path = claude / REGISTRY_FILE[kind]
-    if not path.is_file():
-        return {}
-    registry = _read_json(path)
+    upstream, entries = _registry(claude, kind)
     collection = COLLECTION[kind]
-    upstream = registry.get("upstream") or {}
     out = {}
-    for name, entry, repo_key in registry_entries(registry, collection):
+    for name, entry, repo_key in entries:
         source_root = claude / collection
         source = source_root / f"{name}{SUFFIX[kind]}"
         containment = _containment_error(kind, source, source_root)
@@ -252,12 +268,12 @@ def _from_registry(claude, kind):
             mismatch = f"registry name '{name}', source name '{shown}', and directory name '{source.stem}' must agree"
         dependency_only = entry.get("dependency_only", False)
         if not isinstance(dependency_only, bool):
-            raise ValueError(f"registry skill {name!r} has malformed dependency_only")
+            raise ValueError(f"registry {kind} {name!r} has malformed dependency_only")
         out[name] = Artifact(
             name=name,
             type=kind,
-            groups=_metadata_strings(entry, "groups", name),
-            dependencies=_metadata_strings(entry, "dependencies", name),
+            groups=_metadata_strings(entry, "groups", name, kind),
+            dependencies=_metadata_strings(entry, "dependencies", name, kind),
             dependency_only=dependency_only,
             source=source,
             origin=repo_key or "local",
@@ -265,47 +281,9 @@ def _from_registry(claude, kind):
             upstream_path=entry.get("upstream_path") if repo_key else None,
             upstream_branch=upstream[repo_key].get("branch") if repo_key else None,
             updated_at=entry.get("updated_at"),
-            metadata=True,
             catalog_error=containment or metadata_error or mismatch,
         )
     return out
-
-
-def _root_agents(claude):
-    catalog = {}
-    registered_agents = _from_registry(claude, AGENT)
-    agent_root = claude / STORE[AGENT]
-    if agent_root.is_dir():
-        for path in sorted(agent_root.glob("*.md")):
-            name = _validate_registry_name(path.stem)
-            declared = _frontmatter_name(path)
-            art = registered_agents.pop(name, None)
-            if art is None and declared in registered_agents:
-                metadata_art = registered_agents.pop(declared)
-                art = replace(
-                    metadata_art,
-                    source=path,
-                    catalog_error=(
-                        f"registry name '{declared}', source name '{declared}', and "
-                        f"file name '{path.stem}' must agree"
-                    ),
-                )
-            if art is None:
-                art = Artifact(name=name, type=AGENT, source=path, metadata=False)
-            containment = _containment_error(AGENT, path, agent_root)
-            metadata_error = None
-            if containment is None:
-                metadata_error = _agent_description_error(path, f"agent '{art.name}'")
-            mismatch = None
-            if containment is None and declared != art.name:
-                shown = declared if declared is not None else "missing"
-                mismatch = f"agent name '{art.name}', source name '{shown}', and file name '{path.stem}' must agree"
-            if containment or metadata_error or mismatch:
-                art = replace(art, catalog_error=containment or metadata_error or mismatch)
-            catalog[(AGENT, art.name)] = art
-    for name, art in registered_agents.items():
-        catalog[(AGENT, name)] = art
-    return catalog
 
 
 def _owned_skill(path, root, bundle_name):
@@ -347,18 +325,25 @@ def _bundle_requires(path):
 
 def _from_bundles(claude):
     out = {}
-    root = claude / "bundles"
-    if not root.is_dir():
-        return out
-    for directory in sorted(root.iterdir()):
+    root = claude / STORE[BUNDLE]
+    for name, entry, _ in _registry(claude, BUNDLE)[1]:
+        unsupported = sorted(set(entry) & set(BUNDLE_UNSUPPORTED_KEYS))
+        if unsupported:
+            raise ValueError(f"registry bundle {name!r} has unsupported {', '.join(unsupported)}")
+        directory = root / name
         if not directory.is_dir():
+            out[(BUNDLE, name)] = Bundle(name=name, source=directory)
             continue
-        name = _validate_registry_name(directory.name)
         marker = directory / BUNDLE_MARKER
-        if not marker.is_file():
-            continue
         containment = _containment_error(BUNDLE, directory, root)
         marker_containment = _containment_error(BUNDLE, marker, directory)
+        if not marker.is_file():
+            out[(BUNDLE, name)] = Bundle(
+                name=name,
+                source=directory,
+                catalog_error=containment or f"bundle '{name}' is missing {BUNDLE_MARKER}",
+            )
+            continue
         if marker_containment:
             requires_skills, requires_agents = (), ()
         else:
@@ -412,52 +397,41 @@ def _from_plugins(claude):
             source=directory,
             origin="local",
             manifest_keys=tuple(data.keys()),
-            metadata=True,
         )
     return out
 
 
 def build_catalog(claude):
-    """Filesystem skills plus optional metadata, keyed by (type, name)."""
+    """Every registered skill, agent and bundle, keyed by (type, name)."""
     claude = Path(claude)
     catalog = {}
-    registered_skills = _from_registry(claude, SKILL)
-    skill_root = claude / STORE[SKILL]
-    if skill_root.is_dir():
-        for directory in sorted(skill_root.iterdir()):
-            skill_file = directory / "SKILL.md"
-            if not directory.is_dir() or not skill_file.is_file():
-                continue
-            declared = _frontmatter_name(skill_file)
-            art = registered_skills.pop(directory.name, None)
-            if art is None and declared in registered_skills:
-                metadata_art = registered_skills.pop(declared)
-                art = replace(
-                    metadata_art,
-                    source=directory,
-                    catalog_error=(
-                        f"registry name '{declared}', source name '{declared}', and "
-                        f"directory name '{directory.name}' must agree"
-                    ),
-                )
-            if art is None:
-                art = Artifact(
-                    name=directory.name,
-                    type=SKILL,
-                    source=directory,
-                    metadata=False,
-                )
-            containment = _containment_error(SKILL, directory, skill_root)
-            if containment:
-                art = replace(art, catalog_error=containment)
-            catalog[(SKILL, art.name)] = art
-    for name, art in registered_skills.items():
-        catalog[(SKILL, name)] = art
-
-    catalog.update(_root_agents(claude))
+    for kind in (SKILL, AGENT):
+        catalog.update(((kind, name), art) for name, art in _from_registry(claude, kind).items())
     catalog.update(_from_bundles(claude))
-
     return catalog
+
+
+def unregistered(claude):
+    """Sources on disk that no registry names, as (kind, path), name-ordered.
+
+    Nothing else scans the stores, so this is the only way a forgotten registry
+    row is noticed instead of the artifact silently not existing.
+    """
+    claude = Path(claude)
+    registered = {
+        (kind, name)
+        for kind in (SKILL, AGENT, BUNDLE)
+        for name, _, _ in _registry(claude, kind)[1]
+    }
+    markers = {SKILL: "*/SKILL.md", AGENT: "*.md", BUNDLE: f"*/{BUNDLE_MARKER}"}
+    found = []
+    for kind, pattern in markers.items():
+        for path in sorted((claude / STORE[kind]).glob(pattern)):
+            source = path if kind == AGENT else path.parent
+            name = path.stem if kind == AGENT else source.name
+            if (kind, name) not in registered:
+                found.append((kind, source))
+    return found
 
 
 def get(catalog, kind, name):
@@ -573,7 +547,7 @@ def global_resolution(catalog):
     roots = [
         art.name
         for art in of_type(catalog, SKILL)
-        if art.metadata and art.tagged_global
+        if art.tagged_global
     ]
     return resolve(catalog, roots)
 

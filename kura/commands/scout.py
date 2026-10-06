@@ -91,11 +91,11 @@ def describe(art):
 
 
 def available(catalog, effective, configured, machine=None, catalog_root=None, home=None):
-    """Metadata-backed, project-scoped candidates and configured skills."""
+    """Project-scoped candidates and configured skills."""
     candidates, already = [], []
     roots = views.accepted_skill_roots(catalog_root) if catalog_root is not None else ()
     for art in cat.visible(catalog, cat.SKILL):
-        if not art.metadata or scope.belongs_global(art, effective):
+        if scope.belongs_global(art, effective):
             continue
         if art.name in configured:
             already.append(art)

@@ -3,7 +3,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from kit_helpers import register
 
+from kura import catalog as cat
 from kura import config, errors, harnesses, state
 from kura.commands import init as init_command
 
@@ -204,6 +206,8 @@ def test_unsafe_legacy_pi_bridge_entries_refuse(setup, tmp_path, entry_kind, exp
     home, project, catalog = setup
     skill(catalog, "review")
     skill(catalog, "rogue")
+    register(catalog, cat.SKILL, "review")
+    register(catalog, cat.SKILL, "rogue")
     config.write(config.Config(("claude", "pi")), home)
     claude_root = harnesses.project_skill_root(project, "claude")
     claude_root.mkdir(parents=True)
