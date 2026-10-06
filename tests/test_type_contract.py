@@ -11,7 +11,7 @@ live with those steps rather than here.
 import pytest
 
 from kura import errors
-from kura.cli import TYPES, build_parser
+from kura.cli import ADVERTISED_TYPES, TYPES, build_parser
 
 TYPED = ["list", "add", "remove", "update", "outdated"]
 UNTYPED = ["doctor", "adopt", "restore"]
@@ -45,7 +45,7 @@ def test_a1_names_the_valid_values(command, capsys):
     argv = [command] if command in ("list", "update", "outdated") else [command, "x"]
     parse(argv)
     err = capsys.readouterr().err
-    for kind in TYPES:
+    for kind in ADVERTISED_TYPES:
         assert kind in err, f"{command} refusal should name '{kind}'"
 
 

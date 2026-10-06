@@ -218,4 +218,12 @@ def test_list_plugin_type_refuses_instead_of_printing_skills(kit):
     result = kit("list", "--type", "plugin")
 
     assert result.returncode == errors.USAGE
-    assert "--type skill" in result.stderr
+    assert "Migrate" in result.stderr
+    assert "--type bundle" in result.stderr
+
+
+def test_help_does_not_advertise_the_legacy_plugin_type(kit):
+    result = kit("list", "--help")
+
+    assert "{skill,agent,bundle}" in result.stdout
+    assert "plugin" not in result.stdout
