@@ -80,7 +80,7 @@ The catalog path is not machine configuration and cannot be changed.
 ### Use catalog agents in Pi
 
 Add standalone Markdown agents as `~/.config/kura/catalog/agents/<name>.md`.
-For example, `~/.config/kura/catalog/agents/architect.md` is discovered automatically; no `agent-registry.json` is required unless you want metadata such as the `global` group.
+Register each one in `agent-registry.json`, for example `{ "local": [{ "name": "architect" }] }` for `~/.config/kura/catalog/agents/architect.md`; an agent file with no registry entry is ignored.
 Configure Pi's agent view paths in `config.json` as above, using the directories read by your installed Pi subagent extension.
 Then run `kura config --harness pi --yes` to enable Pi as a global harness, or include `pi` when configuring global harnesses.
 For project agents, run `kura init --harness pi --yes` in the project and `kura add architect --type agent`; Kura links it under the configured project agent path.
@@ -103,7 +103,7 @@ The file is intended for version control.
 ```
 
 Only directly requested skills, standalone agents, and bundles are stored.
-Dependencies are derived recursively from current optional registry metadata and bundle requirements.
+Dependencies are derived recursively from the current registries and bundle requirements.
 Version 1 manifests are read as skill-only manifests and upgrade to version 2 when an agent or bundle selection is written after a successful project transaction.
 Unsupported migrated plugins may be preserved under `legacy` and are not managed.
 A malformed or newer manifest is never treated as an empty declaration.
@@ -114,19 +114,21 @@ Kura always reads the catalog at `~/.config/kura/catalog`.
 There is no flag, environment variable, fallback, or saved setting that changes this path.
 An older machine configuration's `catalog` field is ignored and removed when Kura rewrites the file.
 Links to another catalog location are foreign and must be removed manually before Kura can recreate them from the fixed catalog.
-The minimum catalog has a `skills/` directory, which may be empty; each discovered skill has `skills/<name>/SKILL.md`.
-Standalone agents live in `agents/<name>.md`.
-A bundle lives in `bundles/<name>/`, must contain `bundle.json`, and owns colocated `agents/*.md` and `skills/*/SKILL.md` sources.
+The registries are the catalog: a skill, agent, or bundle exists only when `skill-registry.json`, `agent-registry.json`, or `bundle-registry.json` has an entry for it.
+A missing registry file means no artifacts of that type.
+Each registered name maps to its source: a skill to `skills/<name>/SKILL.md`, a standalone agent to `agents/<name>.md`, and a bundle to `bundles/<name>/`.
+A source on disk with no registry entry is ignored by every command, and `doctor` notes it.
+A bundle directory must contain `bundle.json`, and owns colocated `agents/*.md` and `skills/*/SKILL.md` sources.
 `bundles/backend/bundle.json` may be `{}` for a self-contained bundle.
-`skill-registry.json` and `agent-registry.json` are optional metadata.
-A registry-free skill or agent is project-scoped by default and has no groups, dependencies, durable global policy, or upstream source.
+Bundle-owned agents and skills are never registry entries; registering the bundle covers them.
+A registered skill or agent without groups is project-scoped.
 
-When metadata exists, the registry name, directory name, and `SKILL.md` frontmatter name must agree.
+The registry name, the directory or file name, and the frontmatter `name` must agree.
 A mismatch blocks installation.
-Registry metadata separates `upstream` (GitHub repositories whose skills can be updated) from `local` (catalog-authored skills or agents without an upstream).
+Each registry separates `upstream` (GitHub repositories whose skills can be updated) from `local` (catalog-authored artifacts without an upstream), and `local` rows need a `name`.
 `local` entries may carry groups such as `global`.
 The old `repos` and `local_skills` keys are rejected; rename them when migrating a catalog.
-Registry metadata may add:
+Skill and agent registry entries may add:
 
 - `groups`, including the durable `global` policy
 - `dependencies`
@@ -146,6 +148,16 @@ A registry naming it is completed and validated while it is edited:
 
 The schema is an authoring aid rather than a gate.
 Kura's own refusals decide whether a registry is usable, and it ignores both `$schema` and `version`.
+
+`agent-registry.json` and `bundle-registry.json` use the same `upstream` and `local` shape:
+
+```json
+{
+  "local": [{ "name": "backend", "note": "API and data agents with their skills" }]
+}
+```
+
+Bundle rows may carry `name`, `note`, `updated_at`, and upstream fields; `groups`, `dependencies`, and `dependency_only` are refused until global bundles are designed.
 
 Kura records neither a catalog ID nor content digests.
 Matching names in different developers' catalogs are intentionally treated as equivalent intent.
@@ -225,12 +237,13 @@ kura list --type {skill,agent,bundle} [--group [TAG]] [--json]
 Without a project manifest, `list` shows catalog and global state and sends an initialization notice to stderr.
 With a manifest, a skill is linked only when every selected native view is correct.
 Partial or conflicting state is `drift` and names each harness.
-Bare `--group` groups the human report by metadata tag.
+Bare `--group` groups the human report by registry group tag.
 `--group TAG` filters by one opaque tag.
 `--json` emits only JSON on stdout.
 
 Existing skill row fields remain: `name`, `state`, `installed`, `global`, `groups`, `dependencies`, `reason`, `parent`, and `global_for`.
 Agent and bundle listings use the same state vocabulary; bundle `views` keys identify both harness and member artifact.
+Agent listings show only registered root agents; bundle-owned agents appear only as member views in bundle listings.
 `--group` is currently supported only with `--type skill`.
 The additive skill and agent `views` object is keyed by harness ID.
 The `state` enumeration is `available`, `linked`, `drift`, or `missing`.
@@ -332,8 +345,8 @@ kura update [NAME...] --type skill
 kura outdated [NAME...] --type skill
 ```
 
-These registry-wide commands act only on skills carrying upstream metadata.
-Registry-free skills are omitted unless explicitly named for an explanatory report.
+These registry-wide commands act only on skills carrying upstream fields.
+`local` skills are omitted unless explicitly named for an explanatory report.
 They do not require project initialization.
 `update` requires valid saved machine configuration because it mutates the fixed catalog.
 Read-only `outdated` may inspect the fixed catalog without saved machine configuration.
@@ -348,6 +361,7 @@ Bare `doctor` checks the catalog, machine configuration, project manifest when p
 It can run without a project manifest.
 It returns `DRIFT` for invalid configuration or manifests, missing desired content, unsafe collisions, missing required Pi agent paths, and incorrect native views.
 Missing executables, trust state, split instructions, and preserved legacy rows are informational notes.
+So is each catalog source with no registry entry, reported as `unregistered`: "<path> has no entry in <registry file>, so kura ignores it".
 
 ### `trust`
 

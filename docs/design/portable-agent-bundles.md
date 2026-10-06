@@ -4,6 +4,7 @@
 **Author:** Jose Manuel Rosa
 **Date:** 2026-09-24
 **Scope:** `kura/`, `tests/`, `README.md`, `ARCHITECTURE.md`, `CONTEXT.md`, `docs/specs/`, and the dotfiles AI role and catalog
+**Superseded in part:** [ADR 0006](../adr/0006-registries-are-the-catalog.md) replaces the filesystem discovery described here; skills, agents, and bundles now exist only through their registry entries, and `bundle.json` declares a registered bundle's content rather than marking it.
 
 ## Summary
 

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/jmanuelrosa/kura/main/docs/schemas/skill-registry.schema.json",
   "title": "Kura skill registry",
-  "description": "Optional metadata for the catalog at ~/.config/kura/catalog. Skills are discovered from skills/<name>/SKILL.md; this file adds groups, dependencies, global policy and upstream sources on top of them. An entry named here whose source directory is absent stays representable so `kura list` and `kura doctor` can report it as missing.",
+  "description": "The skill registry for the catalog at ~/.config/kura/catalog. A skill exists for Kura only when this file names it, and its source is skills/<name>/SKILL.md; a skill directory with no entry is ignored. Entries also carry groups, dependencies, global policy and upstream sources. An entry named here whose source directory is absent stays representable so `kura list` and `kura doctor` can report it as missing.",
   "type": "object",
   "additionalProperties": false,
   "properties": {

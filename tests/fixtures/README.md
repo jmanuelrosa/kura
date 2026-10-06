@@ -1,7 +1,7 @@
 # The fixture catalog
 
 `catalog/` is a committed test catalog.
-The multi-harness implementation discovers skills from `skills/<name>/SKILL.md` and merges optional `skill-registry.json` metadata.
+Every fixture skill is named in `skill-registry.json`, which is what makes `skills/<name>/SKILL.md` part of the catalog; a skill directory without a registry entry is ignored.
 `tests/conftest.py` places it at `~/.config/kura/catalog` under an isolated temporary home, while lifecycle tests that mutate catalog data create their own fixed-path catalogs.
 
 Its `skill-registry.json` names [the registry schema](../../docs/schemas/skill-registry.schema.json) relatively, so the committed example is validated while it is edited.
