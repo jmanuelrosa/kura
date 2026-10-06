@@ -31,7 +31,10 @@ NO_ARGPARSE_COLOR = (
     {"color": False} if "color" in argparse.ArgumentParser.__init__.__code__.co_varnames else {}
 )
 
-TYPES = ("skill", "agent", "bundle", "plugin")
+LEGACY_TYPE = "plugin"
+# The legacy type still parses so it can refuse with migration guidance, but it is not advertised.
+TYPES = ("skill", "agent", "bundle", LEGACY_TYPE)
+ADVERTISED_TYPES = tuple(kind for kind in TYPES if kind != LEGACY_TYPE)
 
 COMMANDS = {
     "init": "Initialize this exact directory for selected harnesses",
@@ -301,7 +304,7 @@ def _add_type(parser, required=True):
         dest="type",
         choices=TYPES,
         required=required,
-        metavar="{skill,agent,bundle,plugin}",
+        metavar="{" + ",".join(ADVERTISED_TYPES) + "}",
         help="artifact type",
     )
 
@@ -610,6 +613,11 @@ def _dispatch(args):
     guarded = args.command not in ("add", "remove", "update", "outdated")
     if args.command == "list" and type_filter in ("agent", "bundle"):
         guarded = False
+    if guarded and type_filter == LEGACY_TYPE:
+        return fail(
+            errors.USAGE,
+            "Claude Code plugins are legacy Kura state. Migrate the content to a portable bundle (`--type bundle`).",
+        )
     if guarded and type_filter not in (None, "skill"):
         return fail(
             errors.USAGE,
