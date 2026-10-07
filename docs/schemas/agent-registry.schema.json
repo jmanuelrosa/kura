@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/jmanuelrosa/kura/main/docs/schemas/skill-registry.schema.json",
-  "title": "Kura skill registry",
-  "description": "The skill registry for the catalog at ~/.config/kura/catalog. A skill exists for Kura only when this file names it, and its source is skills/<name>/SKILL.md; a skill directory with no entry is ignored. Entries also carry groups, dependencies, global policy and upstream sources. An entry named here whose source directory is absent stays representable so `kura list` and `kura doctor` can report it as missing.",
+  "$id": "https://raw.githubusercontent.com/jmanuelrosa/kura/main/docs/schemas/agent-registry.schema.json",
+  "title": "Kura agent registry",
+  "description": "The standalone agent registry for the catalog at ~/.config/kura/catalog. An agent exists for Kura only when this file names it, and its source is agents/<name>.md. Unregistered files are ignored. Registered but absent sources remain representable for `kura list` and `kura doctor`. Bundle-owned agents are covered by their bundle registration, not this registry.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -12,12 +12,11 @@
     },
     "version": {
       "type": "integer",
-      "default": 3,
-      "description": "Informational registry format version. Kura ignores it and does not negotiate compatibility; registries using upstream and local conventionally carry 3."
+      "description": "Informational registry format version. Kura ignores it and does not negotiate compatibility."
     },
     "upstream": {
       "type": ["object", "null"],
-      "description": "Upstream repositories, keyed by GitHub owner/repo. Only skills listed here are targets for `kura update` and `kura outdated`.",
+      "description": "Upstream repositories, keyed by GitHub owner/repo. This records agent origin; `kura update` and `kura outdated` act only on skills.",
       "propertyNames": {
         "pattern": "^[^\\s/]+/[^\\s/]+/?$"
       },
@@ -27,9 +26,9 @@
     },
     "local": {
       "type": ["array", "null"],
-      "description": "Skills authored in the catalog itself. They have no upstream, so `kura update` leaves them alone.",
+      "description": "Standalone agents authored in the catalog itself, without an upstream.",
       "items": {
-        "$ref": "#/$defs/localSkill"
+        "$ref": "#/$defs/localAgent"
       }
     }
   },
@@ -37,34 +36,33 @@
     "repo": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["branch"],
       "properties": {
         "branch": {
           "type": "string",
           "minLength": 1,
-          "description": "Ref fetched as https://github.com/<repo>/archive/<branch>.tar.gz.",
+          "description": "Upstream ref recorded as metadata. Kura does not fetch standalone agents.",
           "examples": ["main"]
         },
-        "skills": {
+        "agents": {
           "type": ["array", "null"],
           "items": {
-            "$ref": "#/$defs/repoSkill"
+            "$ref": "#/$defs/repoAgent"
           }
         }
       }
     },
-    "repoSkill": {
+    "repoAgent": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "upstream_path": {
           "type": "string",
-          "description": "Path of the skill inside the fetched repository. Empty, omitted, \".\" or \"/\" means the repository root is itself the skill. Its last component, or the repository name for a root skill, names the skill unless `name` overrides it.",
-          "examples": ["skills/brainstorming", "."]
+          "description": "Agent path in the upstream repository. Its last component, or the repository name when empty, omitted, \".\" or \"/\", names the agent unless `name` overrides it. A Markdown file path needs an explicit extensionless `name`.",
+          "examples": ["agents/architect.md"]
         },
         "name": {
-          "$ref": "#/$defs/skillName",
-          "description": "Overrides the name derived from `upstream_path`."
+          "$ref": "#/$defs/agentName",
+          "description": "Overrides the name derived from `upstream_path`, without the source file\u0027s .md extension."
         },
         "global": {
           "$ref": "#/$defs/globalPolicy"
@@ -86,13 +84,13 @@
         }
       }
     },
-    "localSkill": {
+    "localAgent": {
       "type": "object",
       "additionalProperties": false,
       "required": ["name"],
       "properties": {
         "name": {
-          "$ref": "#/$defs/skillName"
+          "$ref": "#/$defs/agentName"
         },
         "global": {
           "$ref": "#/$defs/globalPolicy"
@@ -114,11 +112,17 @@
         }
       }
     },
+    "agentName": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!\\.\\.?$)[^/\\\\\\u0000]+$",
+      "description": "One safe path component, used as agents/<name>.md. It must equal the source file stem and the frontmatter `name`; an agent also needs a non-empty frontmatter `description`."
+    },
     "skillName": {
       "type": "string",
       "minLength": 1,
       "pattern": "^(?!\\.\\.?$)[^/\\\\\\u0000]+$",
-      "description": "One safe path component. It must equal the directory name under the catalog's skills/ and the `name` in that skill's SKILL.md frontmatter; a mismatch blocks installation."
+      "description": "One safe path component naming a registered root skill, not an agent or a bundle-owned skill."
     },
     "groups": {
       "type": ["array", "null"],
@@ -128,11 +132,11 @@
         "minLength": 1,
         "not": {"const": "global"}
       },
-      "examples": [["engineering", "workflow"]]
+      "examples": [["architecture", "review"]]
     },
     "dependencies": {
       "type": ["array", "null"],
-      "description": "Registered root skill names required recursively by this skill. The closure is also derived when this skill is required by a standalone agent or a bundle. Dependencies are never written to a project's kura.json.",
+      "description": "Registered root skill names required recursively by this agent. Global agents include these skills in the global closure. Dependencies are never written to a project\u0027s kura.json.",
       "items": {
         "$ref": "#/$defs/skillName"
       }
@@ -140,17 +144,17 @@
     "globalPolicy": {
       "type": "boolean",
       "default": false,
-      "description": "Whether this skill is a durable global root. `kura sync` links it and its recursive dependencies into every globally enabled harness. False or omission does not prevent global installation as a dependency."
+      "description": "Whether this standalone agent is a durable global root. Bare `kura sync` links it and its recursive skill dependencies into every globally enabled harness. Pi needs a configured global agent path; `sync --type skill` leaves agent views unchanged."
     },
     "dependencyOnly": {
       "type": "boolean",
       "default": false,
-      "description": "The skill is selected through dependency closure rather than as direct project intent. `kura add --type skill` refuses it by name."
+      "description": "Dependency-only metadata accepted for standalone agents. Kura currently enforces direct-add refusal only for skills."
     },
     "updatedAt": {
       "type": "string",
       "format": "date-time",
-      "description": "When `kura update` last replaced the skill's content. Written as %Y-%m-%dT%H:%M:%SZ.",
+      "description": "Timestamp recorded in the registry. Kura does not update standalone agent content.",
       "examples": ["2026-01-01T00:00:00Z"]
     },
     "note": {

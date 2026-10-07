@@ -152,10 +152,12 @@ def test_every_exit_code_is_documented():
     assert missing == [], f"exit codes absent from README.md: {missing}"
 
 
-def test_registry_schema_declares_explicit_global_policy():
-    schema = json.loads((TOOL / "docs" / "schemas" / "skill-registry.schema.json").read_text())
+@pytest.mark.parametrize("kind", [cat.SKILL, cat.AGENT])
+def test_registry_schema_declares_explicit_global_policy(kind):
+    schema_path = TOOL / "docs" / "schemas" / f"{kind}-registry.schema.json"
+    schema = json.loads(schema_path.read_text())
     definitions = schema["$defs"]
-    for entry_kind in ("localSkill", "repoSkill"):
+    for entry_kind in (f"local{kind.title()}", f"repo{kind.title()}"):
         entry_schema = definitions[entry_kind]
         reference = entry_schema["properties"]["global"]["$ref"]
         policy = definitions[reference.rsplit("/", 1)[-1]]
@@ -164,10 +166,79 @@ def test_registry_schema_declares_explicit_global_policy():
         assert "global" not in entry_schema.get("required", [])
     assert definitions["groups"]["items"]["not"]["const"] == "global"
 
-    fixture = json.loads((CATALOG / cat.REGISTRY_FILE[cat.SKILL]).read_text())
-    for _, entry, _ in cat.registry_entries(fixture, cat.COLLECTION[cat.SKILL]):
+    fixture = json.loads((CATALOG / cat.REGISTRY_FILE[kind]).read_text())
+    for _, entry, _ in cat.registry_entries(fixture, cat.COLLECTION[kind]):
         assert "global" not in entry.get("groups", [])
         assert isinstance(entry.get("global", False), bool)
+
+
+@pytest.mark.parametrize("kind", [cat.SKILL, cat.AGENT, cat.BUNDLE])
+def test_registry_schemas_describe_the_catalog_shape(kind):
+    schema_path = TOOL / "docs" / "schemas" / f"{kind}-registry.schema.json"
+    schema = json.loads(schema_path.read_text())
+    definitions = schema["$defs"]
+    properties = schema["properties"]
+    assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
+    assert schema["$id"].endswith(f"/docs/schemas/{schema_path.name}")
+    assert schema["additionalProperties"] is False
+    assert set(properties) == {"$schema", "version", "upstream", "local"}
+    assert properties["upstream"]["type"] == ["object", "null"]
+    assert properties["upstream"]["additionalProperties"]["$ref"] == "#/$defs/repo"
+    assert properties["local"]["type"] == ["array", "null"]
+    assert properties["local"]["items"]["$ref"] == f"#/$defs/local{kind.title()}"
+
+    repo = definitions["repo"]
+    assert repo["additionalProperties"] is False
+    assert set(repo["properties"]) == {"branch", cat.COLLECTION[kind]}
+    collection = repo["properties"][cat.COLLECTION[kind]]
+    assert collection["type"] == ["array", "null"]
+    assert collection["items"]["$ref"] == f"#/$defs/repo{kind.title()}"
+    assert ("branch" in repo.get("required", [])) == (kind == cat.SKILL)
+
+    metadata = {"name", "note", "updated_at"}
+    if kind != cat.BUNDLE:
+        metadata.update(cat.BUNDLE_UNSUPPORTED_KEYS)
+    for entry_kind in (f"local{kind.title()}", f"repo{kind.title()}"):
+        entry = definitions[entry_kind]
+        expected = metadata | ({"upstream_path"} if entry_kind.startswith("repo") else set())
+        assert set(entry["properties"]) == expected
+        assert entry["additionalProperties"] is False
+        assert entry["properties"]["name"]["$ref"] == f"#/$defs/{kind}Name"
+    assert definitions[f"local{kind.title()}"]["required"] == ["name"]
+    assert schema_path.name in (TOOL / "README.md").read_text()
+
+
+@pytest.mark.parametrize("kind", [cat.SKILL, cat.AGENT, cat.BUNDLE])
+@pytest.mark.parametrize(
+    "name",
+    ["review", "with spaces", "", ".", "..", "../escape", "a/b", "a\\b", "a\0b"],
+)
+def test_registry_schema_names_match_catalog_validation(kind, name):
+    schema_path = TOOL / "docs" / "schemas" / f"{kind}-registry.schema.json"
+    schema = json.loads(schema_path.read_text())
+    definition = schema["$defs"][f"{kind}Name"]
+    assert definition["type"] == "string"
+    assert definition["minLength"] == 1
+    try:
+        cat._validate_registry_name(name)
+    except ValueError:
+        accepted = False
+    else:
+        accepted = True
+    assert bool(re.search(definition["pattern"], name)) == accepted
+
+
+@pytest.mark.parametrize("kind", [cat.SKILL, cat.AGENT])
+def test_registry_dependencies_always_name_root_skills(kind):
+    schema_path = TOOL / "docs" / "schemas" / f"{kind}-registry.schema.json"
+    schema = json.loads(schema_path.read_text())
+    definitions = schema["$defs"]
+    dependencies = definitions["dependencies"]
+    assert dependencies["type"] == ["array", "null"]
+    assert dependencies["items"]["$ref"] == "#/$defs/skillName"
+    assert "skillName" in definitions
+    for entry_kind in (f"local{kind.title()}", f"repo{kind.title()}"):
+        assert definitions[entry_kind]["properties"]["dependencies"]["$ref"] == "#/$defs/dependencies"
 
 
 def test_the_runtime_imports_only_the_standard_library():

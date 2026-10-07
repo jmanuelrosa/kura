@@ -133,12 +133,17 @@ Skill and agent registry entries may add:
 
 - `groups`, descriptive tags for filtering, grouping, and recommendations
 - `global`, an optional boolean declaring durable global root policy (defaults to `false`)
-- `dependencies`
-- `dependency_only`
-- upstream repository fields used by `update` and `outdated`
+- `dependencies`, registered root skill names required recursively by the skill or agent
+- `dependency_only`, with direct-add refusal enforced for skills
+- upstream repository metadata; only skills are targets for `update` and `outdated`
 
-[docs/schemas/skill-registry.schema.json](docs/schemas/skill-registry.schema.json) describes that file for editors.
-A registry naming it is completed and validated while it is edited:
+Editor schemas describe each registry:
+
+- [skill-registry.schema.json](docs/schemas/skill-registry.schema.json) for `skill-registry.json`
+- [agent-registry.schema.json](docs/schemas/agent-registry.schema.json) for `agent-registry.json`
+- [bundle-registry.schema.json](docs/schemas/bundle-registry.schema.json) for `bundle-registry.json`
+
+Set `$schema` to the corresponding URL or a relative path for completion and validation while editing:
 
 ```json
 {
@@ -148,18 +153,21 @@ A registry naming it is completed and validated while it is edited:
 }
 ```
 
-The schema is an authoring aid rather than a gate.
+The schemas are authoring aids rather than runtime gates.
 Kura's own refusals decide whether a registry is usable, and it ignores both `$schema` and `version`.
 
-`agent-registry.json` and `bundle-registry.json` use the same `upstream` and `local` shape:
+`agent-registry.json` and `bundle-registry.json` use the same `upstream` and `local` shape, with `agents` and `bundles` respectively inside each upstream repository:
 
 ```json
 {
+  "$schema": "https://raw.githubusercontent.com/jmanuelrosa/kura/main/docs/schemas/bundle-registry.schema.json",
   "local": [{ "name": "backend", "note": "API and data agents with their skills" }]
 }
 ```
 
+Agent names omit the `.md` extension; an upstream agent row with `upstream_path: "agents/architect.md"` needs `name: "architect"` to override the path basename.
 Bundle rows may carry `name`, `note`, `updated_at`, and upstream fields; `groups`, `global`, `dependencies`, and `dependency_only` are refused until global bundles are designed.
+The bundle registry schema describes registry rows, not the bundle's `bundle.json` requirements or its owned source files.
 
 ### Migrating global policy
 
