@@ -1,5 +1,6 @@
 import json
 
+import pytest
 from kit_helpers import register
 
 from kura import catalog as cat
@@ -155,6 +156,70 @@ def test_list_type_bundle_reports_a_registered_bundle_without_source_as_missing(
 
     assert cli.main(["list", "--type", "bundle", "--json"]) == errors.OK
     assert [(row["name"], row["state"]) for row in json.loads(capsys.readouterr().out)] == [("backend", "missing")]
+
+
+@pytest.mark.parametrize("group,expected", [
+    (None, ["backend", "data", "other"]),
+    ("backend dev", ["backend", "data"]),
+    ("Backend dev", []),
+    ("unknown", []),
+])
+def test_list_bundle_groups_filter_exact_tags_in_json(home, project, monkeypatch, capsys, group, expected):
+    root = _catalog(home)
+    _write_bundle(root, "backend")
+    _write_bundle(root, "other")
+    register(root, cat.BUNDLE, "backend", groups=["workflow", "backend dev", "workflow"])
+    register(root, cat.BUNDLE, "data", groups=["backend dev"])
+    monkeypatch.chdir(project)
+    args = ["list", "--type", "bundle", "--json"]
+    if group is not None:
+        args.extend(["--group", group])
+
+    assert cli.main(args) == errors.OK
+
+    rows = json.loads(capsys.readouterr().out)
+    assert [row["name"] for row in rows] == expected
+    for row in rows:
+        assert row["groups"] == {
+            "backend": ["backend dev", "workflow"],
+            "data": ["backend dev"],
+            "other": [],
+        }[row["name"]]
+        if row["name"] == "data":
+            assert row["state"] == "missing"
+
+
+def test_list_bundle_groups_in_human_output(home, project, monkeypatch, capsys):
+    root = _catalog(home)
+    for name in ("backend", "other"):
+        _write_bundle(root, name)
+    register(root, cat.BUNDLE, "backend", groups=["workflow", "backend dev"])
+    monkeypatch.chdir(project)
+
+    assert cli.main(["list", "--type", "bundle"]) == errors.OK
+    assert "[backend dev, workflow]" in capsys.readouterr().out
+
+    assert cli.main(["list", "--type", "bundle", "--group"]) == errors.OK
+    grouped = capsys.readouterr().out
+    assert "Available groups:" in grouped
+    assert grouped.index("backend dev:") < grouped.index("workflow:")
+    assert grouped.count("backend") == 3
+    assert "other" not in grouped
+    assert "[backend dev, workflow]" not in grouped
+
+    assert cli.main(["list", "--type", "bundle", "--group", "workflow"]) == errors.OK
+    filtered = capsys.readouterr().out
+    assert "backend" in filtered
+    assert "other" not in filtered
+    assert "[backend dev, workflow]" in filtered
+
+
+def test_list_bundle_bare_group_refuses_json(home, project, monkeypatch, capsys):
+    _catalog(home)
+    monkeypatch.chdir(project)
+
+    assert cli.main(["list", "--type", "bundle", "--group", "--json"]) == errors.USAGE
+    assert capsys.readouterr().out == ""
 
 
 def test_list_type_agent_human_output_is_allowed(home, project, monkeypatch, capsys):

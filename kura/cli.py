@@ -319,8 +319,8 @@ def _add_group(parser, verb):
         "--group",
         default=None,
         metavar="TAG",
-        help=f"{verb} every artifact tagged TAG instead of naming them. Members split "
-        f"by scope: --global picks the global half, its absence the project half.",
+        help=f"{verb} skills or bundles tagged TAG instead of naming them. Skills split "
+        f"by scope: --global picks the global half, its absence the project half. Bundles are project-only.",
     )
 
 

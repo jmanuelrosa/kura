@@ -157,7 +157,7 @@ def _bundle_rows(catalog, catalog_root, machine, home, project, manifest):
         view_map = _member_views(catalog_root, home, project, machine, selected, skill_map, agent_map) if selected_bundle else {}
         healthy = bool(view_map) and all(value["state"] == views.CURRENT for value in view_map.values())
         row_state = MISSING if not bundle.source.is_dir() else LINKED if healthy else DRIFT if selected_bundle else AVAILABLE
-        output.append({"name": name, "state": row_state, "installed": scope.PROJECT if healthy else None, "global": False, "groups": (), "dependencies": tuple(sorted((*bundle.requires_skills, *bundle.requires_agents))), "reason": state.DIRECT if selected_bundle else None, "parent": None, "global_for": (), "views": view_map})
+        output.append({"name": name, "state": row_state, "installed": scope.PROJECT if healthy else None, "global": False, "groups": tuple(sorted(set(bundle.groups))), "dependencies": tuple(sorted((*bundle.requires_skills, *bundle.requires_agents))), "reason": state.DIRECT if selected_bundle else None, "parent": None, "global_for": (), "views": view_map})
     for name in sorted(set(manifest.bundles if manifest else ()) - set(bundle_map)):
         output.append({"name": name, "state": MISSING, "installed": None, "global": False, "groups": (), "dependencies": (), "reason": state.DIRECT, "parent": None, "global_for": (), "views": {}})
     return output
@@ -352,9 +352,9 @@ def run(args):
                 raise common.Refusal(errors.USAGE, "agent listing does not support --group")
             listed = _agent_rows(catalog, catalog_root, machine, home, project, manifest)
         elif listing_type == cat.BUNDLE:
-            if args.group is not None:
-                raise common.Refusal(errors.USAGE, "bundle listing does not support --group")
             listed = _bundle_rows(catalog, catalog_root, machine, home, project, manifest)
+            if isinstance(args.group, str):
+                listed = [row for row in listed if args.group in row["groups"]]
         else:
             listed = rows(catalog, catalog_root, machine, home, project, manifest, args.group)
         if args.json:

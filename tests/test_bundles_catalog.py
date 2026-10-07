@@ -283,6 +283,58 @@ def test_bundle_registry_refuses_global_flag(tmp_path, value):
         cat.build_catalog(root)
 
 
+@pytest.mark.parametrize("location", ["local", "upstream"])
+@pytest.mark.parametrize("source", ["present", "absent", "no-marker"])
+def test_bundle_registry_groups_are_descriptive_metadata(tmp_path, location, source):
+    root = tmp_path / "catalog"
+    if source != "absent":
+        directory = write_bundle(root, "backend")
+        if source == "no-marker":
+            (directory / "bundle.json").unlink()
+    entry = {"name": "backend", "groups": ["workflow", "backend dev"]}
+    registry = (
+        {"local": [entry]}
+        if location == "local"
+        else {"upstream": {"owner/repo": {"bundles": [entry]}}}
+    )
+    root.mkdir(exist_ok=True)
+    (root / cat.REGISTRY_FILE[cat.BUNDLE]).write_text(json.dumps(registry))
+
+    catalog = cat.build_catalog(root)
+    bundle = cat.bundles(catalog)["backend"]
+
+    assert bundle.groups == ("workflow", "backend dev")
+    assert cat.in_group(catalog, cat.BUNDLE, "backend dev") == [bundle]
+    assert cat.in_group(catalog, cat.BUNDLE, "Backend dev") == []
+    assert all(not art.groups for art in (*bundle.agents, *bundle.skills))
+
+
+@pytest.mark.parametrize("groups", [None, []])
+def test_bundle_registry_empty_groups(tmp_path, groups):
+    root = tmp_path / "catalog"
+    write_bundle(root, "backend")
+    register(root, cat.BUNDLE, "backend", groups=groups)
+
+    assert cat.bundles(cat.build_catalog(root))["backend"].groups == ()
+
+
+@pytest.mark.parametrize("location", ["local", "upstream"])
+@pytest.mark.parametrize("groups", ["workflow", {}, [""], [1], ["workflow", "global"]])
+def test_bundle_registry_refuses_invalid_groups(tmp_path, location, groups):
+    root = tmp_path / "catalog"
+    write_bundle(root, "backend")
+    entry = {"name": "backend", "groups": groups}
+    registry = (
+        {"local": [entry]}
+        if location == "local"
+        else {"upstream": {"owner/repo": {"bundles": [entry]}}}
+    )
+    (root / cat.REGISTRY_FILE[cat.BUNDLE]).write_text(json.dumps(registry))
+
+    with pytest.raises(ValueError):
+        cat.build_catalog(root)
+
+
 @pytest.mark.parametrize("key", cat.BUNDLE_UNSUPPORTED_KEYS)
 def test_bundle_registry_refuses_install_policy_keys(tmp_path, key):
     root = tmp_path / "catalog"

@@ -181,7 +181,7 @@ def _validate_bundle(catalog, names):
 
 def _project_active(args, machine, catalog_root, catalog, project, manifest):
     kind = args.type
-    names = _explicit_names(args, f"{kind}s")
+    names = _explicit_names(args, f"{kind}s") if kind == cat.AGENT else common.bundle_names(catalog, args)
     if kind == cat.AGENT:
         _validate_agent(catalog, names, manifest.agents)
         additions = set(names) - set(manifest.agents)
@@ -224,7 +224,7 @@ def run(args):
             _plugin_refusal()
         if args.type in PROJECT_ONLY and args.want_global:
             _refuse_project_only(args.type)
-        if args.type != cat.SKILL and args.group is not None:
+        if args.type == cat.AGENT and args.group is not None:
             _explicit_names(args, f"{args.type}s")
         project = manifest = None
         if not args.want_global:

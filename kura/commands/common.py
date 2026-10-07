@@ -201,6 +201,19 @@ def warn_global_fallbacks(plan, project=None, stream=None):
         )
 
 
+def bundle_names(catalog, args):
+    if args.group is None:
+        if not args.names:
+            raise Refusal(errors.USAGE, "Name at least one bundle, or pass --group TAG.")
+        return list(args.names)
+    if args.names:
+        raise Refusal(errors.USAGE, "--group takes no bundle names in the same call.")
+    members = cat.in_group(catalog, cat.BUNDLE, args.group)
+    if not members:
+        raise Refusal(errors.NOT_FOUND, f"No bundle carries the tag '{args.group}'.")
+    return [bundle.name for bundle in members]
+
+
 def run_guarded(callback):
     try:
         return callback()

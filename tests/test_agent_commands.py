@@ -1,5 +1,6 @@
 import json
 
+import pytest
 from kit_helpers import register
 
 from kura import catalog as cat
@@ -178,9 +179,11 @@ def test_bundle_add_promotes_same_named_legacy_plugin_only_after_success(home, p
     }
 
 
-def test_remove_missing_bundle_refuses_instead_of_abandoning_managed_links(home, project, monkeypatch):
+@pytest.mark.parametrize("selection", [["backend"], ["--group", "workflow"]])
+def test_remove_missing_bundle_refuses_instead_of_abandoning_managed_links(home, project, monkeypatch, selection):
     root = _catalog(home)
     directory, _, _ = _write_bundle(root, "backend")
+    register(root, cat.BUNDLE, "backend", groups=["workflow"])
     _configure(home, harnesses=("claude",))
     state.write(project, state.Manifest(("claude",), ()))
     monkeypatch.chdir(project)
@@ -189,7 +192,7 @@ def test_remove_missing_bundle_refuses_instead_of_abandoning_managed_links(home,
     agent_link = harnesses.agent_path("claude", "backend", home, project)
     directory.joinpath("bundle.json").unlink()
 
-    assert cli.main(["remove", "backend", "--type", "bundle"]) == errors.DRIFT
+    assert cli.main(["remove", *selection, "--type", "bundle"]) == errors.DRIFT
     assert state.path_for(project).read_bytes() == manifest_before
     assert agent_link.is_symlink()
 
@@ -206,7 +209,8 @@ def test_plugin_type_refuses_with_migration_guidance(home, project, monkeypatch,
     assert "--type bundle" in message
 
 
-def test_bundle_global_and_group_refuse_without_acting(home, project, monkeypatch):
+@pytest.mark.parametrize("command", ["add", "remove"])
+def test_bundle_global_refuses_without_acting(home, project, monkeypatch, command):
     root = _catalog(home)
     _write_bundle(root, "backend")
     _configure(home)
@@ -214,12 +218,125 @@ def test_bundle_global_and_group_refuse_without_acting(home, project, monkeypatc
     before = state.path_for(project).read_bytes()
     monkeypatch.chdir(project)
 
-    assert cli.main(["add", "backend", "--type", "bundle", "--global"]) == errors.WRONG_SCOPE
-    assert cli.main(["add", "--group", "backend", "--type", "bundle"]) == errors.USAGE
+    assert cli.main([command, "--group", "backend", "--type", "bundle", "--global"]) == errors.WRONG_SCOPE
 
     assert state.path_for(project).read_bytes() == before
     assert not (project / ".claude" / "agents").exists()
     assert not (project / ".pi" / "agents").exists()
+
+
+def test_bundle_group_add_and_remove_preserves_other_direct_intent(home, project, monkeypatch):
+    root = _catalog(home)
+    shared = _write_skill(root, "shared")
+    root_agent = _write_agent(root, "architect")
+    register(root, cat.SKILL, "shared", groups=["workflow"])
+    register(root, cat.AGENT, "architect", groups=["workflow"])
+    sources = {}
+    for name in ("backend", "data", "other"):
+        directory, skill, agent = _write_bundle(root, name)
+        (directory / "bundle.json").write_text(json.dumps({"requires": {"skills": ["shared"]}}))
+        register(root, cat.BUNDLE, name, groups=["workflow"] if name != "other" else [])
+        sources[name] = (skill, agent)
+    machine = _configure(home)
+    state.write(project, state.Manifest(("claude", "pi"), ()))
+    monkeypatch.chdir(project)
+    assert cli.main(["add", "other", "--type", "bundle"]) == errors.OK
+
+    assert cli.main(["add", "--group", "workflow", "--type", "bundle"]) == errors.OK
+
+    manifest = state.read_strict(project)
+    assert manifest.bundles == ("backend", "data", "other")
+    assert manifest.skills == ()
+    assert manifest.agents == ()
+    for harness_id in machine.global_harnesses:
+        for name, (skill, agent) in sources.items():
+            _assert_link(harnesses.skill_path(harness_id, name, home, project), skill)
+            _assert_link(harnesses.agent_path(harness_id, name, home, project, machine), agent)
+        _assert_link(harnesses.skill_path(harness_id, "shared", home, project), shared)
+        assert not harnesses.agent_path(harness_id, root_agent.stem, home, project, machine).exists()
+
+    assert cli.main(["add", "--group", "workflow", "--type", "bundle"]) == errors.ALREADY
+    assert cli.main(["remove", "--group", "workflow", "--type", "bundle"]) == errors.OK
+
+    assert state.read_strict(project).bundles == ("other",)
+    for harness_id in machine.global_harnesses:
+        for name in ("backend", "data"):
+            assert not harnesses.skill_path(harness_id, name, home, project).exists()
+            assert not harnesses.agent_path(harness_id, name, home, project, machine).exists()
+        _assert_link(harnesses.skill_path(harness_id, "shared", home, project), shared)
+        _assert_link(harnesses.skill_path(harness_id, "other", home, project), sources["other"][0])
+        _assert_link(harnesses.agent_path(harness_id, "other", home, project, machine), sources["other"][1])
+
+
+def test_bundle_group_add_conflict_is_atomic_across_members_and_harnesses(home, project, monkeypatch):
+    root = _catalog(home)
+    for name in ("backend", "data"):
+        _write_bundle(root, name)
+        register(root, cat.BUNDLE, name, groups=["workflow"])
+    machine = _configure(home)
+    state.write(project, state.Manifest(("claude", "pi"), ()))
+    before = state.path_for(project).read_bytes()
+    collision = harnesses.agent_path("pi", "data", home, project, machine)
+    collision.parent.mkdir(parents=True)
+    collision.write_text("user-owned")
+    monkeypatch.chdir(project)
+
+    assert cli.main(["add", "--group", "workflow", "--type", "bundle"]) == errors.DRIFT
+
+    assert state.path_for(project).read_bytes() == before
+    assert collision.read_text() == "user-owned"
+    assert not (project / ".claude").exists()
+    assert not harnesses.skill_path("pi", "backend", home, project).exists()
+    assert not harnesses.agent_path("pi", "backend", home, project, machine).exists()
+
+
+@pytest.mark.parametrize("command", ["add", "remove"])
+@pytest.mark.parametrize("names,group,expected", [
+    ([], "unknown", errors.NOT_FOUND),
+    (["backend"], "workflow", errors.USAGE),
+])
+def test_bundle_group_selection_refuses_without_writing(home, project, monkeypatch, command, names, group, expected):
+    root = _catalog(home)
+    _write_bundle(root, "backend")
+    register(root, cat.BUNDLE, "backend", groups=["workflow"])
+    _configure(home)
+    state.write(project, state.Manifest(("claude", "pi"), ()))
+    before = state.path_for(project).read_bytes()
+    monkeypatch.chdir(project)
+
+    assert cli.main([command, *names, "--group", group, "--type", "bundle"]) == expected
+
+    assert state.path_for(project).read_bytes() == before
+    assert not (project / ".claude").exists()
+    assert not (project / ".pi").exists()
+
+
+def test_bundle_group_remove_selects_only_configured_members(home, project, monkeypatch):
+    root = _catalog(home)
+    for name in ("backend", "data"):
+        _write_bundle(root, name)
+        register(root, cat.BUNDLE, name, groups=["workflow"])
+    _configure(home)
+    state.write(project, state.Manifest(("claude", "pi"), ()))
+    monkeypatch.chdir(project)
+    assert cli.main(["add", "backend", "--type", "bundle"]) == errors.OK
+
+    assert cli.main(["remove", "--group", "workflow", "--type", "bundle"]) == errors.OK
+
+    assert state.read_strict(project).bundles == ()
+    before = state.path_for(project).read_bytes()
+    assert cli.main(["remove", "--group", "workflow", "--type", "bundle"]) == errors.OK
+    assert state.path_for(project).read_bytes() == before
+
+
+@pytest.mark.parametrize("command", ["add", "remove", "list"])
+def test_agent_group_cli_remains_unsupported(home, project, monkeypatch, command):
+    _catalog(home)
+    _configure(home)
+    state.write(project, state.Manifest(("claude", "pi"), ()))
+    monkeypatch.chdir(project)
+
+    assert cli.main([command, "--group", "workflow", "--type", "agent"]) == errors.USAGE
 
 
 def test_list_plugin_type_refuses_instead_of_printing_skills(kit):

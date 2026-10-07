@@ -195,7 +195,7 @@ def test_registry_schemas_describe_the_catalog_shape(kind):
     assert collection["items"]["$ref"] == f"#/$defs/repo{kind.title()}"
     assert ("branch" in repo.get("required", [])) == (kind == cat.SKILL)
 
-    metadata = {"name", "note", "updated_at"}
+    metadata = {"name", "groups", "note", "updated_at"}
     if kind != cat.BUNDLE:
         metadata.update(cat.BUNDLE_UNSUPPORTED_KEYS)
     for entry_kind in (f"local{kind.title()}", f"repo{kind.title()}"):
@@ -204,6 +204,8 @@ def test_registry_schemas_describe_the_catalog_shape(kind):
         assert set(entry["properties"]) == expected
         assert entry["additionalProperties"] is False
         assert entry["properties"]["name"]["$ref"] == f"#/$defs/{kind}Name"
+        assert entry["properties"]["groups"]["$ref"] == "#/$defs/groups"
+    assert definitions["groups"]["items"]["not"]["const"] == "global"
     assert definitions[f"local{kind.title()}"]["required"] == ["name"]
     assert schema_path.name in (TOOL / "README.md").read_text()
 
