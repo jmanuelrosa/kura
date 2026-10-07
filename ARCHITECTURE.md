@@ -79,13 +79,16 @@ The reasoning is recorded in [ADR 0006](docs/adr/0006-registries-are-the-catalog
 Registered but absent sources remain representable so `list` and `doctor` can report missing content.
 The registry name, the directory or file name, and the frontmatter name must agree.
 A mismatch is attached to the catalog artifact and blocks planning that artifact.
-Local and upstream skill and standalone agent rows may declare descriptive groups and an optional `global` boolean.
+Local and upstream skill, standalone agent, and bundle rows may declare descriptive groups.
+Only skill and standalone agent rows accept an optional `global` boolean.
 Only `global: true` selects a global root; false or omission does not prevent a skill from joining the global dependency closure.
 The retired `global` group tag is refused, even alongside the new field, so a partially migrated catalog cannot silently lose global roots.
 
 A registered bundle directory must contain `bundle.json`, which declares its `requires` and may be `{}` for a self-contained bundle that owns at least one agent and one skill.
 A registered bundle directory without `bundle.json` is a catalog error.
-Bundle registry rows may carry `name`, `note`, `updated_at`, and upstream fields, but refuse `groups`, `global`, `dependencies`, and `dependency_only` until global bundles are designed.
+Bundle registry rows may carry `name`, `groups`, `note`, `updated_at`, and upstream fields, but refuse `global`, `dependencies`, and `dependency_only` until global bundles are designed.
+Bundle groups are descriptive metadata, not install policy, and are never inherited by owned artifacts.
+[ADR 0007](docs/adr/0007-descriptive-bundle-groups.md) separates group selection from the unresolved global bundle policy.
 Bundle-owned agents and skills are never registry entries: registering the bundle covers them, and they are selected through their bundle rather than by independent root selection.
 `list --type agent` therefore shows only registered root agents, while bundle-owned agents appear as member views under `list --type bundle`.
 
@@ -186,6 +189,9 @@ Removing a harness deletes only links proven managed from the previous project d
 
 `add` and `remove` modify direct skill, standalone agent, or bundle names, derive the new closure, reconcile all selected views, and write the manifest last.
 They require explicit `--type skill`, `--type agent`, or `--type bundle` for project artifacts.
+`--group TAG` selects skill or bundle names from that type's registry and cannot be combined with names; standalone agents still require explicit names.
+Bundle group adds record all members as direct intent, while removals select only directly configured members, with each operation using one project transaction.
+Unknown groups refuse; removing a known bundle group with no direct members is a no-op.
 `--type plugin` parses but refuses because Claude Code plugins are legacy state, not portable bundles.
 Typed non-skill global operations and typed non-skill unsupported commands refuse rather than pretending to manage partial state.
 `remove --no-cascade` remains parseable as a deprecated compatibility option, but dependency presence is defined by declarative closure rather than historical provenance.
@@ -228,6 +234,7 @@ A removed global harness is an explicit request, so its managed links can be rem
 A configured skill is `linked` only when every required native view is current.
 Any missing, stale, foreign, or real-path view makes the row `drift` and names each harness.
 JSON stdout contains only JSON, while initialization notices remain on stderr.
+Skill and bundle listings filter by exact registry tag with `--group TAG` and group human output with bare `--group`; standalone agent listings remain ungrouped.
 
 Bare `doctor` orders actionable drift before informational notes across implemented skill and agent behavior.
 Invalid machine configuration, invalid manifests, missing content, dependency failures, missing required Pi agent paths, collisions, and incorrect native views return `DRIFT`.

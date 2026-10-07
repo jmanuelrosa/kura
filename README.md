@@ -161,12 +161,15 @@ Kura's own refusals decide whether a registry is usable, and it ignores both `$s
 ```json
 {
   "$schema": "https://raw.githubusercontent.com/jmanuelrosa/kura/main/docs/schemas/bundle-registry.schema.json",
-  "local": [{ "name": "backend", "note": "API and data agents with their skills" }]
+  "local": [{ "name": "backend", "groups": ["backend", "workflow"], "note": "API and data agents with their skills" }]
 }
 ```
 
 Agent names omit the `.md` extension; an upstream agent row with `upstream_path: "agents/architect.md"` needs `name: "architect"` to override the path basename.
-Bundle rows may carry `name`, `note`, `updated_at`, and upstream fields; `groups`, `global`, `dependencies`, and `dependency_only` are refused until global bundles are designed.
+Bundle rows may carry `name`, `groups`, `note`, `updated_at`, and upstream fields.
+Groups are descriptive tags shared by local and upstream rows, not install policy, and are not inherited by bundle-owned artifacts.
+`global`, `dependencies`, and `dependency_only` remain refused; bundle requirements belong in `bundle.json`, and bundles remain project-only.
+The retired `global` group tag is refused for bundles too.
 The bundle registry schema describes registry rows, not the bundle's `bundle.json` requirements or its owned source files.
 
 ### Migrating global policy
@@ -267,7 +270,7 @@ Existing skill row fields remain: `name`, `state`, `installed`, `global`, `group
 The list row's `global` reports effective policy or an actual global install, not just the registry's root flag; `global_for` attributes derived global dependencies.
 Agent and bundle listings use the same state vocabulary; bundle `views` keys identify both harness and member artifact.
 Agent listings show only registered root agents; bundle-owned agents appear only as member views in bundle listings.
-`--group` is currently supported only with `--type skill`.
+`--group` supports `--type skill` and `--type bundle`; agent listings require ungrouped output.
 The additive skill and agent `views` object is keyed by harness ID.
 The `state` enumeration is `available`, `linked`, `drift`, or `missing`.
 
@@ -294,8 +297,10 @@ A fully healthy repeated add returns `ALREADY`.
 A repeated add with drift repairs the selected views.
 `--global` instead creates temporary scratch links in every globally enabled harness and does not write a global manifest.
 The next `sync` restores registry-global policy.
-`--group TAG` selects skill group members and cannot be combined with names; agent and bundle selections require explicit names.
-Without `--global`, the project half is selected; with it, the global-policy half is selected.
+`--group TAG` selects all skill or bundle members carrying that exact tag and cannot be combined with names; agent selections require explicit names.
+Skill groups split by scope: without `--global`, the project half is selected; with it, the global-policy half is selected.
+Bundle groups select project bundles only, store their names as direct intent, and install their full closure in one transaction.
+An unknown group returns `NOT_FOUND`.
 Global `add` supports skills only; typed non-skill global adds are refused.
 
 ### `remove`
@@ -307,7 +312,8 @@ kura remove [NAME...] --type {skill,agent,bundle} [--group TAG] [--global] [--no
 Project `remove` removes direct intent, re-derives dependencies and bundle closures, and reconciles every selected view atomically.
 Dependencies still required by another direct skill, agent, or bundle remain.
 `--global` removes matching temporary global links from every globally enabled harness until the next `sync`.
-`--group TAG` follows the same skill-only partition rule as `add`.
+`--group TAG` follows the same skill partition rule as `add` or removes only directly configured bundle members of the group.
+A known bundle group with no directly configured members succeeds without changes; an unknown group returns `NOT_FOUND`.
 `--no-cascade` remains accepted as a deprecated compatibility flag, but dependencies are declaratively derived from `kura.json`.
 Global `remove` supports skills only; typed non-skill global removes are refused.
 

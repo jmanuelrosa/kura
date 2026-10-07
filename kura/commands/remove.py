@@ -161,10 +161,15 @@ def _explicit_names(args, label):
 
 def _project_active(args, machine, catalog_root, catalog):
     kind = args.type
-    names = _explicit_names(args, f"{kind}s")
+    names = _explicit_names(args, f"{kind}s") if kind == cat.AGENT else common.bundle_names(catalog, args)
     project = common.project_root()
     manifest = common.manifest(project)
     current = set(manifest.agents if kind == cat.AGENT else manifest.bundles)
+    if args.group is not None:
+        names = [name for name in names if name in current]
+        if not names:
+            ui.note(f"No direct project bundles tagged '{args.group}' are configured.")
+            return errors.OK
     missing = sorted(set(names) - current)
     if missing:
         raise common.Refusal(
@@ -205,7 +210,7 @@ def run(args):
             _plugin_refusal()
         if args.type in PROJECT_ONLY and args.want_global:
             _refuse_project_only(args.type)
-        if args.type != cat.SKILL and args.group is not None:
+        if args.type == cat.AGENT and args.group is not None:
             _explicit_names(args, f"{args.type}s")
         machine, catalog_root = common.machine()
         catalog = common.loaded_catalog(catalog_root)

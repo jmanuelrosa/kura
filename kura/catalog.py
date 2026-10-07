@@ -42,7 +42,7 @@ PLUGIN_REQUIRED_KEYS = ("name", "description", "version")
 BUNDLE_MARKER = "bundle.json"
 # A bundle has no install policy of its own yet, so a registry row carrying one is
 # refused rather than silently ignored.
-BUNDLE_UNSUPPORTED_KEYS = ("groups", "global", "dependencies", "dependency_only")
+BUNDLE_UNSUPPORTED_KEYS = ("global", "dependencies", "dependency_only")
 
 
 @dataclass(frozen=True)
@@ -86,6 +86,7 @@ class Bundle:
     requires_skills: tuple = ()
     requires_agents: tuple = ()
     catalog_error: str = None
+    groups: tuple = ()
 
 
 def _validate_registry_name(name):
@@ -337,9 +338,15 @@ def _from_bundles(claude):
         unsupported = sorted(set(entry) & set(BUNDLE_UNSUPPORTED_KEYS))
         if unsupported:
             raise ValueError(f"registry bundle {name!r} has unsupported {', '.join(unsupported)}")
+        groups = _metadata_strings(entry, "groups", name, BUNDLE)
+        if "global" in groups:
+            raise ValueError(
+                f"registry bundle {name!r} uses the retired global group; "
+                "remove it from groups; global bundles are not supported"
+            )
         directory = root / name
         if not directory.is_dir():
-            out[(BUNDLE, name)] = Bundle(name=name, source=directory)
+            out[(BUNDLE, name)] = Bundle(name=name, source=directory, groups=groups)
             continue
         marker = directory / BUNDLE_MARKER
         containment = _containment_error(BUNDLE, directory, root)
@@ -349,6 +356,7 @@ def _from_bundles(claude):
                 name=name,
                 source=directory,
                 catalog_error=containment or f"bundle '{name}' is missing {BUNDLE_MARKER}",
+                groups=groups,
             )
             continue
         if marker_containment:
@@ -379,6 +387,7 @@ def _from_bundles(claude):
             requires_skills=requires_skills,
             requires_agents=requires_agents,
             catalog_error=containment or marker_containment or missing or (errors[0] if errors else None),
+            groups=groups,
         )
     return out
 
@@ -470,7 +479,7 @@ def visible(catalog, kind):
     A dependency-only skill installs with whichever skill needs it and refuses to be
     added by name, so every surface that offers a choice starts here.
     """
-    return [art for art in of_type(catalog, kind) if not art.dependency_only]
+    return [art for art in of_type(catalog, kind) if kind == BUNDLE or not art.dependency_only]
 
 
 def in_group(catalog, kind, tag):

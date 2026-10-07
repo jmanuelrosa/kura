@@ -64,6 +64,9 @@
           "$ref": "#/$defs/bundleName",
           "description": "Overrides the name derived from `upstream_path`."
         },
+        "groups": {
+          "$ref": "#/$defs/groups"
+        },
         "updated_at": {
           "$ref": "#/$defs/updatedAt"
         },
@@ -80,6 +83,9 @@
         "name": {
           "$ref": "#/$defs/bundleName"
         },
+        "groups": {
+          "$ref": "#/$defs/groups"
+        },
         "updated_at": {
           "$ref": "#/$defs/updatedAt"
         },
@@ -93,6 +99,16 @@
       "minLength": 1,
       "pattern": "^(?!\\.\\.?$)[^/\\\\\\u0000]+$",
       "description": "One safe path component naming the bundle directory under the catalog\u0027s bundles/."
+    },
+    "groups": {
+      "type": ["array", "null"],
+      "description": "Descriptive tags for filtering, grouping, and project selection, matched exactly and never normalised. The retired global tag is refused; bundles remain project-only.",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "not": {"const": "global"}
+      },
+      "examples": [["backend", "workflow"]]
     },
     "updatedAt": {
       "type": "string",
