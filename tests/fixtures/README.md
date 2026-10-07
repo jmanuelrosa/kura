@@ -9,14 +9,15 @@ Kura ignores the key, and the fixture is the worked example the schema is checke
 
 The retained `plugins/` fixture describes legacy state that migration preserves without managing.
 The `agents/` and `agent-registry.json` fixtures are active agent catalog inputs for bundle and agent-view tests.
-Fixture agents deliberately use non-global groups so legacy skill tests do not accidentally grow global agent policy.
+Fixture agents deliberately omit the `global` flag so legacy skill tests do not accidentally grow global agent policy.
+Fixture global skill roots use `global: true`, and their groups remain descriptive.
 
 ## Skill cases
 
 | Property | Held by |
 |---|---|
 | Project-scoped metadata skill | `coderabbit` |
-| Registry-global skill | `commit` |
+| Explicit registry-global skill root | `commit` (`global: true`) |
 | Recursive global dependency | `grill-me` and `grill-with-docs` require `grilling` |
 | Dependency-only skills | `grilling`, `domain-modeling` |
 | Project dependency closure | `spec-driven-development` |

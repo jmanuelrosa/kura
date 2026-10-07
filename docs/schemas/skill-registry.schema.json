@@ -66,6 +66,9 @@
           "$ref": "#/$defs/skillName",
           "description": "Overrides the name derived from `upstream_path`."
         },
+        "global": {
+          "$ref": "#/$defs/globalPolicy"
+        },
         "groups": {
           "$ref": "#/$defs/groups"
         },
@@ -90,6 +93,9 @@
       "properties": {
         "name": {
           "$ref": "#/$defs/skillName"
+        },
+        "global": {
+          "$ref": "#/$defs/globalPolicy"
         },
         "groups": {
           "$ref": "#/$defs/groups"
@@ -116,12 +122,13 @@
     },
     "groups": {
       "type": ["array", "null"],
-      "description": "Opaque tags, matched exactly and never normalised. `global` is durable global policy: the skill and its dependencies are linked into every globally enabled harness by `kura sync`.",
+      "description": "Descriptive tags, matched exactly and never normalised. The retired `global` tag is refused; use the boolean field instead.",
       "items": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "not": {"const": "global"}
       },
-      "examples": [["engineering", "global"]]
+      "examples": [["engineering", "workflow"]]
     },
     "dependencies": {
       "type": ["array", "null"],
@@ -129,6 +136,11 @@
       "items": {
         "$ref": "#/$defs/skillName"
       }
+    },
+    "globalPolicy": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this skill is a durable global root. `kura sync` links it and its recursive dependencies into every globally enabled harness. False or omission does not prevent global installation as a dependency."
     },
     "dependencyOnly": {
       "type": "boolean",

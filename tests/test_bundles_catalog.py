@@ -273,6 +273,16 @@ def test_registered_bundle_without_a_directory_is_absent_not_invalid(tmp_path):
     assert bundle.catalog_error is None
 
 
+@pytest.mark.parametrize("value", [False, True])
+def test_bundle_registry_refuses_global_flag(tmp_path, value):
+    root = tmp_path / "catalog"
+    write_bundle(root, "backend")
+    register(root, cat.BUNDLE, "backend", **{"global": value})
+
+    with pytest.raises(ValueError):
+        cat.build_catalog(root)
+
+
 @pytest.mark.parametrize("key", cat.BUNDLE_UNSUPPORTED_KEYS)
 def test_bundle_registry_refuses_install_policy_keys(tmp_path, key):
     root = tmp_path / "catalog"

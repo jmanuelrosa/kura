@@ -23,10 +23,10 @@
     },
     {
       "name": "commit",
+      "global": true,
       "groups": [
         "ai",
-        "git",
-        "global"
+        "git"
       ]
     },
     {
@@ -38,9 +38,9 @@
     },
     {
       "name": "grill-me",
+      "global": true,
       "groups": [
-        "planning",
-        "global"
+        "planning"
       ],
       "dependencies": [
         "grilling"
@@ -48,9 +48,9 @@
     },
     {
       "name": "grill-with-docs",
+      "global": true,
       "groups": [
-        "planning",
-        "global"
+        "planning"
       ],
       "dependencies": [
         "grilling"

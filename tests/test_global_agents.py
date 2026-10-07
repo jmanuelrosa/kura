@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from kit_helpers import register
 
 from kura import catalog as cat
@@ -24,7 +26,7 @@ def _write_skill(root, name, *, groups=(), dependencies=()):
     return directory
 
 
-def _write_agent(root, name, *, groups=("global",), dependencies=()):
+def _write_agent(root, name, *, groups=(), is_global=True, dependencies=()):
     directory = root / "agents"
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{name}.md"
@@ -38,6 +40,7 @@ def _write_agent(root, name, *, groups=("global",), dependencies=()):
                     {
                         "name": name,
                         "groups": list(groups),
+                        "global": is_global,
                         "dependencies": list(dependencies),
                     }
                 ]
@@ -98,7 +101,7 @@ def test_empty_global_agent_policy_refuses_to_prune_managed_agent_links(home, ca
     link = harnesses.agent_path("claude", "architect", home)
     assert link.is_symlink() and link.resolve() == agent
 
-    _write_agent(root, "architect", groups=())
+    _write_agent(root, "architect", is_global=False)
 
     assert cli.main(["sync"]) == errors.DRIFT
 
@@ -154,8 +157,8 @@ def test_config_refuses_to_drop_pi_global_agent_view_when_old_path_is_unknown(ho
 
 def test_skill_only_global_sync_does_not_require_pi_agent_configuration(home):
     root = _catalog(home)
-    skill = _write_skill(root, "global-tool", groups=("global",))
-    _write_skill_registry(root, [{"name": "global-tool", "groups": ["global"]}])
+    skill = _write_skill(root, "global-tool")
+    _write_skill_registry(root, [{"name": "global-tool", "global": True}])
     config.write(_machine(pi_global=None), home)
 
     assert cli.main(["sync"]) == errors.OK
@@ -163,6 +166,29 @@ def test_skill_only_global_sync_does_not_require_pi_agent_configuration(home):
     for harness_id in ("claude", "pi"):
         link = harnesses.skill_path(harness_id, "global-tool", home)
         assert link.is_symlink() and link.resolve() == skill
+
+
+@pytest.mark.parametrize("policy", [{}, {"global": False}])
+def test_global_agent_brings_recursive_non_global_skill_roots(home, policy):
+    root = _catalog(home)
+    helper = _write_skill(root, "helper")
+    leaf = _write_skill(root, "leaf")
+    _write_skill_registry(root, [
+        {"name": "helper", "dependencies": ["leaf"], **policy},
+        {"name": "leaf", "dependencies": ["helper"], **policy},
+    ])
+    agent = _write_agent(root, "architect", groups=("architecture",), dependencies=("helper",))
+    config.write(_machine(), home)
+
+    assert cli.main(["sync"]) == errors.OK
+
+    catalog = cat.build_catalog(root)
+    for name, source in (("helper", helper), ("leaf", leaf)):
+        assert not cat.get(catalog, cat.SKILL, name).is_global
+        for harness_id in ("claude", "pi"):
+            assert harnesses.skill_path(harness_id, name, home).resolve() == source
+    for harness_id in ("claude", "pi"):
+        assert harnesses.agent_path(harness_id, "architect", home, machine_config=config.read(home)).resolve() == agent
 
 
 def test_sync_type_skill_does_not_touch_global_agent_links(home):

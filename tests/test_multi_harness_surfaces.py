@@ -50,6 +50,60 @@ def workspace(tmp_path, monkeypatch):
     return home, project
 
 
+@pytest.mark.parametrize("policy", [{}, {"global": False}])
+def test_global_dependency_listing_keeps_root_policy_distinct(workspace, policy, capsys):
+    home, project = workspace
+    root = catalog_at(config.catalog_path(home), [
+        {"name": "root", "global": True, "groups": ["workflow"], "dependencies": ["helper"]},
+        {"name": "helper", "groups": ["review"], **policy},
+    ])
+    configure(home)
+
+    assert cli.main(["sync"]) == errors.OK
+    capsys.readouterr()
+    assert cli.main(["list", "--type", "skill", "--json"]) == errors.OK
+    rows = {row["name"]: row for row in json.loads(capsys.readouterr().out)}
+
+    assert set(rows["helper"]) == ROW_FIELDS
+    assert rows["helper"]["global"] is True
+    assert rows["helper"]["global_for"] == ["root"]
+    assert rows["helper"]["groups"] == ["review"]
+    for harness_id in config.read(home).global_harnesses:
+        assert harnesses.skill_path(harness_id, "helper", home).resolve() == root / "skills" / "helper"
+
+    assert cli.main(["list", "--type", "skill", "--group", "workflow", "--json"]) == errors.OK
+    assert [row["name"] for row in json.loads(capsys.readouterr().out)] == ["root"]
+    assert cli.main(["list", "--type", "skill", "--group", "review", "--json"]) == errors.OK
+    assert [row["name"] for row in json.loads(capsys.readouterr().out)] == ["helper"]
+    assert cli.main(["list", "--type", "skill", "--group", "global", "--json"]) == errors.OK
+    assert json.loads(capsys.readouterr().out) == []
+
+
+@pytest.mark.parametrize("policy", [{}, {"global": False}])
+def test_scratch_global_listing_does_not_change_root_policy(workspace, policy, capsys):
+    home, _ = workspace
+    root = catalog_at(config.catalog_path(home), [
+        {"name": "review", "groups": ["review"], **policy},
+    ])
+    configure(home)
+    registry_path = root / "skill-registry.json"
+    registry_before = registry_path.read_bytes()
+
+    assert cli.main(["add", "review", "--type", "skill", "--global"]) == errors.OK
+    capsys.readouterr()
+    assert cli.main(["list", "--type", "skill", "--json"]) == errors.OK
+    row, = json.loads(capsys.readouterr().out)
+
+    assert row["global"] is True
+    assert row["installed"] == "global"
+    assert row["global_for"] == []
+    assert row["groups"] == ["review"]
+    assert registry_path.read_bytes() == registry_before
+    assert cli.main(["remove", "review", "--type", "skill", "--global"]) == errors.OK
+    for harness_id in config.read(home).global_harnesses:
+        assert not harnesses.skill_path(harness_id, "review", home).exists()
+
+
 def configure(home, harness_ids=("claude", "pi")):
     config.write(config.Config(harness_ids), home)
 
@@ -239,7 +293,7 @@ def test_listing_retains_missing_global_policy_and_harness_views(
     home, project = workspace
     catalog = catalog_at(
         config.catalog_path(home),
-        [{"name": "missing-global", "groups": ["global"]}],
+        [{"name": "missing-global", "global": True}],
         present=(),
     )
     configure(home)
