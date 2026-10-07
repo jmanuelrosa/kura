@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/jmanuelrosa/kura/main/docs/schemas/bundle-registry.schema.json",
+  "title": "Kura bundle registry",
+  "description": "The portable bundle registry for the catalog at ~/.config/kura/catalog. A bundle exists for Kura only when this file names it, and its source is bundles/<name>/. Registered but absent directories remain representable for `kura list` and `kura doctor`. A present directory must contain bundle.json, at least one agents/*.md source and at least one skills/*/SKILL.md source. This schema describes registry rows, not bundle.json or owned source files.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "URL or relative path of this schema."
+    },
+    "version": {
+      "type": "integer",
+      "description": "Informational registry format version. Kura ignores it and does not negotiate compatibility."
+    },
+    "upstream": {
+      "type": ["object", "null"],
+      "description": "Upstream repositories, keyed by GitHub owner/repo. This records bundle origin; `kura update` and `kura outdated` act only on skills.",
+      "propertyNames": {
+        "pattern": "^[^\\s/]+/[^\\s/]+/?$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/repo"
+      }
+    },
+    "local": {
+      "type": ["array", "null"],
+      "description": "Bundles authored in the catalog itself, without an upstream.",
+      "items": {
+        "$ref": "#/$defs/localBundle"
+      }
+    }
+  },
+  "$defs": {
+    "repo": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Upstream ref recorded as metadata. Kura does not fetch bundles.",
+          "examples": ["main"]
+        },
+        "bundles": {
+          "type": ["array", "null"],
+          "items": {
+            "$ref": "#/$defs/repoBundle"
+          }
+        }
+      }
+    },
+    "repoBundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "upstream_path": {
+          "type": "string",
+          "description": "Bundle directory in the upstream repository. Its last component, or the repository name when empty, omitted, \".\" or \"/\", names the bundle unless `name` overrides it.",
+          "examples": ["bundles/backend", "."]
+        },
+        "name": {
+          "$ref": "#/$defs/bundleName",
+          "description": "Overrides the name derived from `upstream_path`."
+        },
+        "updated_at": {
+          "$ref": "#/$defs/updatedAt"
+        },
+        "note": {
+          "$ref": "#/$defs/note"
+        }
+      }
+    },
+    "localBundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/bundleName"
+        },
+        "updated_at": {
+          "$ref": "#/$defs/updatedAt"
+        },
+        "note": {
+          "$ref": "#/$defs/note"
+        }
+      }
+    },
+    "bundleName": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!\\.\\.?$)[^/\\\\\\u0000]+$",
+      "description": "One safe path component naming the bundle directory under the catalog\u0027s bundles/."
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp recorded in the registry. Kura does not update bundle content.",
+      "examples": ["2026-01-01T00:00:00Z"]
+    },
+    "note": {
+      "type": "string",
+      "description": "Free-form annotation. Kura ignores it."
+    }
+  }
+}
