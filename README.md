@@ -41,7 +41,7 @@ Kura never searches Git or parent directories to find one.
 
 A selected harness receives the project's complete managed skill set and selected standalone or bundled agents.
 A globally enabled harness receives the complete registry-global skill and agent set after `sync` or a machine configuration change.
-When a project declares a globally tagged skill and its global link is missing, the selected harness receives a project-local link instead; `init` does not sync global skills.
+When a project declares a globally configured skill and its global link is missing, the selected harness receives a project-local link instead; `init` does not sync global skills.
 After linking such a fallback, Kura warns which globally enabled harnesses lack the links and suggests `kura sync` as an optional way to install them globally.
 Executable detection affects initialization suggestions and trust eligibility, but it never suppresses skill links.
 
@@ -84,7 +84,7 @@ Register each one in `agent-registry.json`, for example `{ "local": [{ "name": "
 Configure Pi's agent view paths in `config.json` as above, using the directories read by your installed Pi subagent extension.
 Then run `kura config --harness pi --yes` to enable Pi as a global harness, or include `pi` when configuring global harnesses.
 For project agents, run `kura init --harness pi --yes` in the project and `kura add architect --type agent`; Kura links it under the configured project agent path.
-For agents marked with the `global` group in `agent-registry.json`, run `kura sync` to create global links under the configured global agent path.
+For agents with `global: true` in `agent-registry.json`, run `kura sync` to create global links under the configured global agent path.
 Kura's job ends at creating those links; install/configure a Pi extension that reads that directory to make the agents available to Pi.
 
 ## Project manifest
@@ -121,16 +121,18 @@ A source on disk with no registry entry is ignored by every command, and `doctor
 A bundle directory must contain `bundle.json`, and owns colocated `agents/*.md` and `skills/*/SKILL.md` sources.
 `bundles/backend/bundle.json` may be `{}` for a self-contained bundle.
 Bundle-owned agents and skills are never registry entries; registering the bundle covers them.
-A registered skill or agent without groups is project-scoped.
+A registered skill or standalone agent is a global root only when its registry row sets `global` to `true`.
+Omitted or `false` means it is not a global root, but required skills still install globally through dependency closure.
 
 The registry name, the directory or file name, and the frontmatter `name` must agree.
 A mismatch blocks installation.
 Each registry separates `upstream` (GitHub repositories whose skills can be updated) from `local` (catalog-authored artifacts without an upstream), and `local` rows need a `name`.
-`local` entries may carry groups such as `global`.
+`local` entries may carry descriptive groups such as `workflow` and the same global policy as upstream entries.
 The old `repos` and `local_skills` keys are rejected; rename them when migrating a catalog.
 Skill and agent registry entries may add:
 
-- `groups`, including the durable `global` policy
+- `groups`, descriptive tags for filtering, grouping, and recommendations
+- `global`, an optional boolean declaring durable global root policy (defaults to `false`)
 - `dependencies`
 - `dependency_only`
 - upstream repository fields used by `update` and `outdated`
@@ -142,7 +144,7 @@ A registry naming it is completed and validated while it is edited:
 {
   "$schema": "https://raw.githubusercontent.com/jmanuelrosa/kura/main/docs/schemas/skill-registry.schema.json",
   "version": 3,
-  "local": [{ "name": "review", "groups": ["global"] }]
+  "local": [{ "name": "review", "global": true, "groups": ["workflow"] }]
 }
 ```
 
@@ -157,7 +159,17 @@ Kura's own refusals decide whether a registry is usable, and it ignores both `$s
 }
 ```
 
-Bundle rows may carry `name`, `note`, `updated_at`, and upstream fields; `groups`, `dependencies`, and `dependency_only` are refused until global bundles are designed.
+Bundle rows may carry `name`, `note`, `updated_at`, and upstream fields; `groups`, `global`, `dependencies`, and `dependency_only` are refused until global bundles are designed.
+
+### Migrating global policy
+
+In both `skill-registry.json` and `agent-registry.json`, remove the old `global` tag from each row's `groups` and set `global` to `true`, preserving other groups and metadata.
+This applies to local and upstream entries.
+Kura refuses the retired tag even when the new flag is also present; there is no compatibility alias for `--group global`.
+The flag must be a JSON boolean, not a string, number, or `null`.
+A dependency with `global: false` or no flag can still be installed globally when a global root requires it.
+Stop old Kura or provisioning mutations during the coordinated executable and catalog cutover: older Kura ignores the new flag.
+Changing registry `version` does not negotiate compatibility, and Kura does not migrate registry files automatically.
 
 Kura records neither a catalog ID nor content digests.
 Matching names in different developers' catalogs are intentionally treated as equivalent intent.
@@ -244,6 +256,7 @@ Bare `--group` groups the human report by registry group tag.
 `--json` emits only JSON on stdout.
 
 Existing skill row fields remain: `name`, `state`, `installed`, `global`, `groups`, `dependencies`, `reason`, `parent`, and `global_for`.
+The list row's `global` reports effective policy or an actual global install, not just the registry's root flag; `global_for` attributes derived global dependencies.
 Agent and bundle listings use the same state vocabulary; bundle `views` keys identify both harness and member artifact.
 Agent listings show only registered root agents; bundle-owned agents appear only as member views in bundle listings.
 `--group` is currently supported only with `--type skill`.

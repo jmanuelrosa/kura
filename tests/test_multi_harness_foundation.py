@@ -124,6 +124,59 @@ def test_catalog_name_reader_accepts_a_quoted_yaml_key(tmp_path):
     assert artifact.catalog_error is None
 
 
+def registry_with_entry(kind, location, entry):
+    if location == "local":
+        return {"local": [entry]}
+    return {
+        "upstream": {
+            "owner/repo": {"branch": "main", cat.COLLECTION[kind]: [entry]}
+        }
+    }
+
+
+@pytest.mark.parametrize("kind", [cat.SKILL, cat.AGENT])
+@pytest.mark.parametrize("location", ["local", "upstream"])
+@pytest.mark.parametrize("policy", [{}, {"global": False}, {"global": True}])
+def test_registry_global_flag_is_explicit(tmp_path, kind, location, policy):
+    entry = {"name": "review", "groups": ["workflow"], **policy}
+    root = catalog_with_registry(tmp_path, {})
+    (root / cat.REGISTRY_FILE[kind]).write_text(
+        json.dumps(registry_with_entry(kind, location, entry))
+    )
+
+    artifact = cat.get(cat.build_catalog(root), kind, "review")
+
+    assert artifact.is_global is policy.get("global", False)
+    assert artifact.groups == ("workflow",)
+
+
+@pytest.mark.parametrize("kind", [cat.SKILL, cat.AGENT])
+@pytest.mark.parametrize("location", ["local", "upstream"])
+@pytest.mark.parametrize("value", [None, 0, 1, "", "true", [], {}])
+def test_registry_global_flag_rejects_non_booleans(tmp_path, kind, location, value):
+    root = catalog_with_registry(tmp_path, {})
+    (root / cat.REGISTRY_FILE[kind]).write_text(
+        json.dumps(registry_with_entry(kind, location, {"name": "review", "global": value}))
+    )
+
+    with pytest.raises(ValueError):
+        cat.build_catalog(root)
+
+
+@pytest.mark.parametrize("kind", [cat.SKILL, cat.AGENT])
+@pytest.mark.parametrize("location", ["local", "upstream"])
+@pytest.mark.parametrize("policy", [{}, {"global": False}, {"global": True}])
+def test_registry_refuses_retired_global_group(tmp_path, kind, location, policy):
+    root = catalog_with_registry(tmp_path, {})
+    entry = {"name": "review", "groups": ["workflow", "global"], **policy}
+    (root / cat.REGISTRY_FILE[kind]).write_text(
+        json.dumps(registry_with_entry(kind, location, entry))
+    )
+
+    with pytest.raises(ValueError):
+        cat.build_catalog(root)
+
+
 def manifest_data():
     return {
         "schemaVersion": 1,

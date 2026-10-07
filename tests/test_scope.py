@@ -12,7 +12,7 @@ from kit_helpers import CATALOG
 
 
 SKILL = cat.Artifact(name="coderabbit", type=cat.SKILL)
-GLOBAL_SKILL = cat.Artifact(name="commit", type=cat.SKILL, groups=("global",))
+GLOBAL_SKILL = cat.Artifact(name="commit", type=cat.SKILL, is_global=True)
 AGENT = cat.Artifact(name="architect", type=cat.AGENT)
 PLUGIN = cat.Artifact(name="backend", type=cat.PLUGIN)
 
@@ -34,6 +34,28 @@ def test_link_path_per_type(tmp_path, art, expected):
     home, project = tmp_path / "home", tmp_path / "project"
     assert scope.link_path(art, scope.PROJECT, home, project) == project / expected
     assert scope.link_path(art, scope.GLOBAL, home, project) == home / expected
+
+
+def test_global_dependencies_do_not_need_global_root_flags():
+    root = cat.Artifact(name="root", type=cat.SKILL, is_global=True, dependencies=("helper",))
+    helper = cat.Artifact(name="helper", type=cat.SKILL, is_global=False, dependencies=("leaf",))
+    leaf = cat.Artifact(name="leaf", type=cat.SKILL, dependencies=("root",))
+    catalog = {(art.type, art.name): art for art in (root, helper, leaf)}
+
+    effective = scope.global_set(catalog)
+
+    assert effective == {"root", "helper", "leaf"}
+    assert scope.global_parents(catalog) == {"helper": ("root",), "leaf": ("root",)}
+    assert scope.belongs_global(helper, effective)
+    assert scope.belongs_global(leaf, effective)
+
+
+def test_descriptive_groups_do_not_select_global_roots():
+    artifact = cat.Artifact(name="review", type=cat.SKILL, groups=("workflow",))
+    catalog = {(artifact.type, artifact.name): artifact}
+
+    assert scope.global_set(catalog) == set()
+    assert not scope.belongs_global(artifact, set())
 
 
 def test_link_path_ignores_the_other_root(tmp_path):

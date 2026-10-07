@@ -317,7 +317,7 @@ def test_unrelated_broken_global_metadata_does_not_block_project_plan(tmp_path):
         tmp_path,
         [
             {"name": "local"},
-            {"name": "broken-global", "groups": ["global"], "dependencies": ["missing"]},
+            {"name": "broken-global", "global": True, "dependencies": ["missing"]},
         ],
         ["local", "broken-global"],
     )

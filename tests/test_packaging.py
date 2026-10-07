@@ -11,6 +11,7 @@ than this repository.
 """
 
 import ast
+import json
 import os
 import re
 import stat
@@ -19,6 +20,7 @@ import sys
 
 import pytest
 
+from kura import catalog as cat
 
 from kit_helpers import CATALOG, PACKAGE, SHIM, TOOL, subparsers
 
@@ -148,6 +150,24 @@ def test_every_exit_code_is_documented():
     readme = (TOOL / "README.md").read_text()
     missing = [name for name in errors.NAMES.values() if f"`{name}`" not in readme]
     assert missing == [], f"exit codes absent from README.md: {missing}"
+
+
+def test_registry_schema_declares_explicit_global_policy():
+    schema = json.loads((TOOL / "docs" / "schemas" / "skill-registry.schema.json").read_text())
+    definitions = schema["$defs"]
+    for entry_kind in ("localSkill", "repoSkill"):
+        entry_schema = definitions[entry_kind]
+        reference = entry_schema["properties"]["global"]["$ref"]
+        policy = definitions[reference.rsplit("/", 1)[-1]]
+        assert policy["type"] == "boolean"
+        assert policy["default"] is False
+        assert "global" not in entry_schema.get("required", [])
+    assert definitions["groups"]["items"]["not"]["const"] == "global"
+
+    fixture = json.loads((CATALOG / cat.REGISTRY_FILE[cat.SKILL]).read_text())
+    for _, entry, _ in cat.registry_entries(fixture, cat.COLLECTION[cat.SKILL]):
+        assert "global" not in entry.get("groups", [])
+        assert isinstance(entry.get("global", False), bool)
 
 
 def test_the_runtime_imports_only_the_standard_library():

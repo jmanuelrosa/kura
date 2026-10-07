@@ -19,9 +19,8 @@ def make_catalog(path, global_skill=False):
     path.mkdir(parents=True)
     (path / "skills").mkdir()
     add_skill(path, "review")
-    groups = ["global"] if global_skill else []
     (path / "skill-registry.json").write_text(
-        json.dumps({"local": [{"name": "review", "groups": groups}]})
+        json.dumps({"local": [{"name": "review", "global": global_skill}]})
     )
     return path
 
@@ -87,7 +86,7 @@ def test_converge_repairs_a_missing_selected_view(environment):
 def test_converge_deletes_only_redundant_managed_project_links(environment):
     home, project, catalog = environment
     registry = json.loads((catalog / "skill-registry.json").read_text())
-    registry["local"][0]["groups"] = ["global"]
+    registry["local"][0]["global"] = True
     (catalog / "skill-registry.json").write_text(json.dumps(registry))
     state.write(project, state.Manifest(("claude", "pi"), ("review",)))
     for harness_id in ("claude", "pi"):
@@ -222,6 +221,47 @@ def test_malformed_dependency_metadata_is_a_controlled_catalog_refusal(environme
     )
 
     assert cli.main(["add", "review", "--type", "skill"]) == errors.DRIFT
+
+
+@pytest.mark.parametrize("command", ["sync", "add", "converge"])
+@pytest.mark.parametrize("invalid", [
+    {"groups": ["global"]},
+    {"groups": ["global"], "global": True},
+    {"global": None},
+    {"global": 1},
+])
+def test_invalid_global_policy_refuses_before_any_mutation(environment, command, invalid):
+    home, project, catalog = environment
+    add_skill(catalog, "helper")
+    state.write(project, state.Manifest(("claude", "pi"), ("review",)))
+    manifest_before = state.path_for(project).read_bytes()
+    machine_before = config.read(home)
+    links = []
+    for harness_id in machine_before.global_harnesses:
+        link = harnesses.skill_path(harness_id, "review", home)
+        link.parent.mkdir(parents=True)
+        link.symlink_to(catalog / "skills" / "review")
+        links.append((link, link.readlink()))
+    registry_path = catalog / "skill-registry.json"
+    registry_path.write_text(json.dumps({"local": [
+        {"name": "helper", "global": True},
+        {"name": "review", **invalid},
+    ]}))
+    registry_before = registry_path.read_bytes()
+    arguments = ["sync"] if command == "sync" else [command, "--type", "skill"]
+    if command == "add":
+        arguments.insert(1, "review")
+
+    assert cli.main(arguments) == errors.DRIFT
+
+    assert state.path_for(project).read_bytes() == manifest_before
+    assert config.read(home) == machine_before
+    assert registry_path.read_bytes() == registry_before
+    for link, target in links:
+        assert link.is_symlink() and link.readlink() == target
+    for harness_id in machine_before.global_harnesses:
+        assert not harnesses.skill_path(harness_id, "helper", home).exists()
+        assert not harnesses.skill_path(harness_id, "review", home, project).exists()
 
 
 def test_first_bootstrap_supports_a_symlinked_config_directory(

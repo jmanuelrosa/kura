@@ -98,7 +98,7 @@ def test_doctor_reports_global_agent_missing_config(tmp_path, monkeypatch, capsy
     home, project, catalog = workspace(tmp_path, monkeypatch)
     write_agent(catalog, "architect")
     (catalog / "agent-registry.json").write_text(
-        json.dumps({"local": [{"name": "architect", "groups": ["global"]}]})
+        json.dumps({"local": [{"name": "architect", "global": True}]})
     )
     configure(home, ("pi",), pi=False)
 

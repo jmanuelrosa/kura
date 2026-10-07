@@ -252,7 +252,11 @@ def test_e4_everything_else_is_byte_identical(tmp_path):
     """A hand-maintained registry must survive a write with only the one field
     changed: no reordered keys, no dropped fields, no reformatting."""
     path = tmp_path / "skill-registry.json"
-    original = json.dumps(REGISTRY, indent=2) + "\n"
+    data = json.loads(json.dumps(REGISTRY))
+    entry = data["upstream"]["owner/one"]["skills"][0]
+    entry["global"] = True
+    entry["groups"] = ["workflow"]
+    original = json.dumps(data, indent=2) + "\n"
     path.write_text(original)
 
     registry.stamp_entry(path, "owner/one", "skills/alpha", "2026-07-28T10:00:00Z")

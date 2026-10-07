@@ -42,7 +42,7 @@ PLUGIN_REQUIRED_KEYS = ("name", "description", "version")
 BUNDLE_MARKER = "bundle.json"
 # A bundle has no install policy of its own yet, so a registry row carrying one is
 # refused rather than silently ignored.
-BUNDLE_UNSUPPORTED_KEYS = ("groups", "dependencies", "dependency_only")
+BUNDLE_UNSUPPORTED_KEYS = ("groups", "global", "dependencies", "dependency_only")
 
 
 @dataclass(frozen=True)
@@ -52,6 +52,7 @@ class Artifact:
     groups: tuple = ()
     dependencies: tuple = ()
     dependency_only: bool = False
+    is_global: bool = False
     source: Path = None
     origin: str = "local"
     # Only repo-tracked skills have an upstream to sync from.
@@ -70,10 +71,6 @@ class Artifact:
     @property
     def basename(self):
         return f"{self.name}{SUFFIX[self.type]}"
-
-    @property
-    def tagged_global(self):
-        return "global" in self.groups
 
     @property
     def has_upstream(self):
@@ -266,15 +263,25 @@ def _from_registry(claude, kind):
         if containment is None and source.exists() and declared != name:
             shown = declared if declared is not None else "missing"
             mismatch = f"registry name '{name}', source name '{shown}', and directory name '{source.stem}' must agree"
+        groups = _metadata_strings(entry, "groups", name, kind)
+        if "global" in groups:
+            raise ValueError(
+                f"registry {kind} {name!r} uses the retired global group; "
+                "remove it from groups and set global: true"
+            )
+        is_global = entry.get("global", False)
+        if not isinstance(is_global, bool):
+            raise ValueError(f"registry {kind} {name!r} has malformed global")
         dependency_only = entry.get("dependency_only", False)
         if not isinstance(dependency_only, bool):
             raise ValueError(f"registry {kind} {name!r} has malformed dependency_only")
         out[name] = Artifact(
             name=name,
             type=kind,
-            groups=_metadata_strings(entry, "groups", name, kind),
+            groups=groups,
             dependencies=_metadata_strings(entry, "dependencies", name, kind),
             dependency_only=dependency_only,
+            is_global=is_global,
             source=source,
             origin=repo_key or "local",
             upstream_repo=repo_key,
@@ -547,7 +554,7 @@ def global_resolution(catalog):
     roots = [
         art.name
         for art in of_type(catalog, SKILL)
-        if art.tagged_global
+        if art.is_global
     ]
     return resolve(catalog, roots)
 

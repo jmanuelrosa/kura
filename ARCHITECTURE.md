@@ -79,17 +79,19 @@ The reasoning is recorded in [ADR 0006](docs/adr/0006-registries-are-the-catalog
 Registered but absent sources remain representable so `list` and `doctor` can report missing content.
 The registry name, the directory or file name, and the frontmatter name must agree.
 A mismatch is attached to the catalog artifact and blocks planning that artifact.
-Root registry `local` groups are valid, including `global`.
+Local and upstream skill and standalone agent rows may declare descriptive groups and an optional `global` boolean.
+Only `global: true` selects a global root; false or omission does not prevent a skill from joining the global dependency closure.
+The retired `global` group tag is refused, even alongside the new field, so a partially migrated catalog cannot silently lose global roots.
 
 A registered bundle directory must contain `bundle.json`, which declares its `requires` and may be `{}` for a self-contained bundle that owns at least one agent and one skill.
 A registered bundle directory without `bundle.json` is a catalog error.
-Bundle registry rows may carry `name`, `note`, `updated_at`, and upstream fields, but refuse `groups`, `dependencies`, and `dependency_only` until global bundles are designed.
+Bundle registry rows may carry `name`, `note`, `updated_at`, and upstream fields, but refuse `groups`, `global`, `dependencies`, and `dependency_only` until global bundles are designed.
 Bundle-owned agents and skills are never registry entries: registering the bundle covers them, and they are selected through their bundle rather than by independent root selection.
 `list --type agent` therefore shows only registered root agents, while bundle-owned agents appear as member views under `list --type bundle`.
 
 Dependency closure is recursive, deterministic, and cycle-safe.
 The project closure begins with the direct skill, agent, and bundle names in `kura.json`.
-The global closure begins with registered skills and standalone agents carrying the `global` group, and includes skill dependencies.
+The global closure begins with registered skills and standalone agents declaring `global: true`, and includes skill dependencies.
 Dependencies are never written to the project manifest.
 
 `update` and `outdated` act only on skills whose registry entry supplies an upstream source.

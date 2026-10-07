@@ -1,7 +1,7 @@
 """Where an artifact belongs, and where it currently is.
 
-The `global` group tag decides scope, never the working directory. A tagged
-artifact belongs in ~/.claude; everything else belongs in a project, which is
+The registry `global` flag decides scope, never the working directory. A global
+root belongs in ~/.claude; everything else belongs in a project, which is
 simply the directory you are standing in. Landing in ~/.claude by direct request
 always needs --global, so the call site says so.
 
@@ -24,7 +24,7 @@ def _derive_global(catalog):
     roots = sorted(
         art.name
         for art in skill_map.values()
-        if art.tagged_global
+        if art.is_global
     )
     effective = set()
     parents = {}
@@ -35,7 +35,7 @@ def _derive_global(catalog):
             return
         first = name not in effective
         effective.add(name)
-        if name != root and not art.tagged_global:
+        if name != root and not art.is_global:
             parents.setdefault(name, set()).add(root)
         if first:
             for dependency in art.dependencies:
@@ -43,7 +43,7 @@ def _derive_global(catalog):
         else:
             for dependency in art.dependencies:
                 dep = skill_map.get(dependency)
-                if dep is not None and not dep.tagged_global:
+                if dep is not None and not dep.is_global:
                     parents.setdefault(dependency, set()).add(root)
 
     for root in roots:
@@ -56,24 +56,24 @@ def global_set(catalog):
 
     Skills only, deliberately. Every dependency edge names a skill, so this is the
     only set that needs deriving; an agent or plugin is global exactly when it
-    carries the tag. Returning bare names across all three types would let a skill
+    declares itself global. Returning bare names across all three types would let a skill
     inherit globalness from an identically-named agent, which is precisely the
     shadowing that explicit --type exists to rule out.
 
-    Tag membership alone is not enough. A global artifact's declared dependencies
+    Root policy alone is not enough. A global artifact's declared dependencies
     reach ~/.claude too, or a global skill would load with a dependency missing;
     and a global *agent*'s skill dependencies expand one level further, because
     those skills may themselves declare others the agent needs at runtime.
 
     In the current registry this is why grilling, jira, domain-modeling,
     documentation-and-adrs and planning-and-task-breakdown are global without
-    carrying the tag.
+    declaring themselves global.
     """
     return _derive_global(catalog)[0]
 
 
 def global_parents(catalog):
-    """{skill name: (global artifacts that pull it in,)}, for the untagged ones only.
+    """{skill name: (global artifacts that pull it in,)}, for non-root dependencies.
 
     The provenance a global install has no file for: `state` deliberately records
     nothing about ~/.claude, because a global dependency never cascades, so there is
@@ -89,10 +89,10 @@ def global_parents(catalog):
 def belongs_global(art, effective):
     """Whether this artifact belongs in ~/.claude, ignoring any --global override.
 
-    The tag is authoritative for every type. The derived set only adds skills
+    The flag is authoritative for every type. The derived set only adds skills
     reached as dependencies, so it is consulted for skills alone.
     """
-    if art.tagged_global:
+    if art.is_global:
         return True
     return art.type == cat.SKILL and art.name in effective
 

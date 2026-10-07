@@ -37,7 +37,7 @@ def test_linked_bundle_lists_each_harness_once(plain):
     assert listing.format_row(_row(view_map)) == "  ✓ backend (linked: claude, pi)"
 
 
-def test_global_install_is_marked_without_a_global_tag(plain):
+def test_global_install_is_marked_without_global_policy(plain):
     row = _row({"claude": {"state": views.CURRENT}}, installed=scope.GLOBAL)
 
     assert listing.format_row(row) == "  ✓ backend (linked: claude) (global)"

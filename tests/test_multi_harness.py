@@ -40,7 +40,7 @@ def setup(tmp_path, monkeypatch):
             "local": [
                 {"name": "review", "dependencies": ["helper"], "groups": ["review"]},
                 {"name": "helper", "dependency_only": True},
-                {"name": "global-tool", "groups": ["global"]},
+                {"name": "global-tool", "global": True, "groups": ["workflow"]},
             ]
         },
     )
@@ -157,7 +157,7 @@ def test_init_without_global_sync_links_declared_skills_into_the_project(setup, 
 
     assert cli.main(["init", "--harness", "claude", "--harness", "pi", "--yes"]) == errors.OK
     output = capsys.readouterr().out
-    assert "Globally tagged skills" in output
+    assert "Globally configured skills" in output
     assert "Claude Code, Pi" in output
     assert "kura sync" in output
     assert state.read_strict(project) == declaration
@@ -365,7 +365,7 @@ def test_sync_refuses_to_prune_to_an_empty_global_set(setup):
     registry = catalog / "skill-registry.json"
     data = json.loads(registry.read_text())
     for entry in data["local"]:
-        entry["groups"] = [group for group in entry.get("groups", []) if group != "global"]
+        entry["global"] = False
     registry.write_text(json.dumps(data))
     managed = harnesses.skill_path("claude", "global-tool", home)
     assert managed.is_symlink()

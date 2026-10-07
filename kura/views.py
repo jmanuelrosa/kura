@@ -355,7 +355,7 @@ def _global_agent_names(catalog):
         sorted(
             art.name
             for art in cat.of_type(catalog, cat.AGENT)
-            if art.tagged_global
+            if art.is_global
         )
     )
 
@@ -364,7 +364,7 @@ def _global_skill_roots(catalog):
     roots = {
         art.name
         for art in cat.of_type(catalog, cat.SKILL)
-        if art.tagged_global
+        if art.is_global
     }
     for name in _global_agent_names(catalog):
         art = cat.get(catalog, cat.AGENT, name)

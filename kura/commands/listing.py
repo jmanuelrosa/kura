@@ -106,7 +106,7 @@ def _agent_rows(catalog, catalog_root, machine, home, project, manifest):
     for art in cat.visible(catalog, cat.AGENT):
         selected_source = project_agents.get(art.name)
         is_configured = selected_source is not None and selected_source.source == art.source
-        is_global = art.tagged_global
+        is_global = art.is_global
         project_views = _agent_views(catalog_root, home, project, machine, selected if is_configured else (), art.name, art, exact_sources)
         global_views = _agent_views(catalog_root, home, None, machine, global_ids if is_global else (), art.name, art)
         if is_configured and is_global:
