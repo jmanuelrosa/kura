@@ -1,8 +1,9 @@
 """Group A: the --type contract.
 
-`--type` is required on every command except `doctor` and `adopt`, where a result
-spanning all three types is the whole point. Nothing is inferred from a name,
-which is what lets the skill, agent and plugin namespaces overlap.
+`--type` is required on every artifact command except `scout`, `sync`, `doctor`,
+`adopt`, `restore` and `converge`, where a result spanning every type is the whole
+point and a given type narrows it. Nothing is inferred from a name, which is what
+lets the skill, agent and bundle namespaces overlap.
 
 A3 and A5 need a catalog to resolve names against, and A6 needs `doctor`; they
 live with those steps rather than here.
@@ -14,7 +15,7 @@ from kura import errors
 from kura.cli import ADVERTISED_TYPES, TYPES, build_parser
 
 TYPED = ["list", "add", "remove", "update", "outdated"]
-UNTYPED = ["doctor", "adopt", "restore"]
+UNTYPED = ["scout", "sync", "doctor", "adopt", "restore", "converge"]
 
 
 def parse(argv):
