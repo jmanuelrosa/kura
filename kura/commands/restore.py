@@ -22,6 +22,7 @@ def run(args):
             relink=False,
             machine_config=machine,
         )
+        plan = views.narrow(plan, args.type)
         common.refuse_plan(plan, "restore this project")
         if not args.dry_run:
             common.apply_plan(plan)
@@ -29,8 +30,8 @@ def run(args):
         if not args.dry_run:
             common.warn_global_fallbacks(plan)
         if plan.missing:
-            for name, harness_id, source in plan.missing:
-                ui.warn(f"'{name}' remains declared but is missing from the catalog.")
+            for row in plan.missing:
+                ui.warn(f"'{row.name}' remains declared but is missing from the catalog.")
         if not plan.actions and not plan.missing:
             ui.ok(
                 "Project declaration is already restored across "

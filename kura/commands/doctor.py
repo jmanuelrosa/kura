@@ -40,24 +40,29 @@ def _machine(home, findings):
     try:
         root = config.effective_catalog(home)
     except config.Malformed as exc:
-        findings.append(Finding("catalog", PROBLEM, "Catalog", str(exc)))
+        findings.append(Finding("catalog", PROBLEM, "Catalog", str(exc), None))
         return machine, None
     return machine, root
 
 
-def _catalog(root, findings):
+def _in_selection(finding, selection):
+    return selection is None or finding.kind is None or finding.kind == selection
+
+
+def _catalog(root, selection, findings):
     if root is None or not (root / cat.STORE[cat.SKILL]).is_dir():
         if root is not None:
-            findings.append(Finding("catalog", PROBLEM, "Catalog", f"{root} has no skills/ directory"))
+            findings.append(Finding("catalog", PROBLEM, "Catalog", f"{root} has no skills/ directory", None))
         return {}
     try:
         catalog = cat.build_catalog(root)
         stray = cat.unregistered(root)
     except (OSError, ValueError, TypeError, AttributeError) as exc:
-        findings.append(Finding("catalog", PROBLEM, "Catalog", f"cannot be read: {exc}"))
+        findings.append(Finding("catalog", PROBLEM, "Catalog", f"cannot be read: {exc}", None))
         return {}
-    findings.extend(checks.catalog_health(catalog))
-    findings.extend(checks.unregistered_notes(stray))
+    for finding in (*checks.catalog_health(catalog), *checks.unregistered_notes(stray)):
+        if _in_selection(finding, selection):
+            findings.append(finding)
     return catalog
 
 
@@ -86,12 +91,12 @@ def _manifest(project, findings):
         return None
 
 
-def _views(machine, root, catalog, home, project, manifest, findings):
+def _views(machine, root, catalog, home, project, manifest, selection, findings):
     if root is None:
         return
     if machine is not None:
         global_plan = views.global_plan(catalog, root, home, machine.global_harnesses, machine_config=machine)
-        findings.extend(checks.view_plan(global_plan, "global views"))
+        findings.extend(checks.view_plan(views.narrow(global_plan, selection), "global views"))
     if manifest is None:
         return
     plan = views.project_plan(
@@ -104,10 +109,10 @@ def _views(machine, root, catalog, home, project, manifest, findings):
         machine.global_harnesses if machine is not None else (),
         machine_config=machine,
     )
-    findings.extend(checks.view_plan(plan, "project views"))
+    findings.extend(checks.view_plan(views.narrow(plan, selection), "project views"))
 
 
-def _notes(home, project, manifest, findings):
+def _notes(home, project, manifest, selection, findings):
     if manifest is None:
         return
     if "claude" in manifest.harnesses and harnesses.executable_available("claude"):
@@ -123,13 +128,17 @@ def _notes(home, project, manifest, findings):
         _, decision = pi_trust.decided_by(store, project)
         if decision is not True:
             findings.append(Finding("trust", NOTE, "Pi trust", "not granted for this project", None))
-    findings.extend(checks.executable_notes(manifest))
-    findings.extend(checks.instruction_notes(project))
-    findings.extend(checks.legacy_notes(manifest))
-    findings.extend(checks.pi_agent_notes(manifest))
+    for finding in (
+        *checks.executable_notes(manifest),
+        *checks.instruction_notes(project),
+        *checks.legacy_notes(manifest),
+        *checks.pi_agent_notes(manifest),
+    ):
+        if _in_selection(finding, selection):
+            findings.append(finding)
 
 
-def report(findings):
+def report(findings, selection=None):
     ordered = [
         finding
         for _, finding in sorted(
@@ -146,21 +155,23 @@ def report(findings):
         for finding in rows:
             print(f"  {finding.subject}: {finding.detail}")
         print()
+    label = selection or "artifact"
     if not findings:
-        ui.ok("No drift found across configured skill views.")
+        ui.ok(f"No drift found across configured {label} views.")
     else:
-        ui.done(f"{len(problems)} problem(s), {len(notes)} note(s) across skills.")
+        ui.done(f"{len(problems)} problem(s), {len(notes)} note(s) across {label}s.")
     return errors.DRIFT if problems else errors.OK
 
 
 def run(args):
     home = paths.home()
     project = scope.project_root(Path.cwd(), home)
+    selection = args.type
     findings = []
     machine, root = _machine(home, findings)
     manifest = _manifest(project, findings) if project is not None else None
-    catalog = _catalog(root, findings)
-    _views(machine, root, catalog, home, project, manifest, findings)
+    catalog = _catalog(root, selection, findings)
+    _views(machine, root, catalog, home, project, manifest, selection, findings)
     if project is not None:
-        _notes(home, project, manifest, findings)
-    return report(findings)
+        _notes(home, project, manifest, selection, findings)
+    return report(findings, selection)
