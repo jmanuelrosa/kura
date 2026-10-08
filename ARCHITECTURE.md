@@ -193,12 +193,21 @@ They require explicit `--type skill`, `--type agent`, or `--type bundle` for pro
 Bundle group adds record all members as direct intent, while removals select only directly configured members, with each operation using one project transaction.
 Unknown groups refuse; removing a known bundle group with no direct members is a no-op.
 `--type plugin` parses but refuses because Claude Code plugins are legacy state, not portable bundles.
-Typed non-skill global operations and typed non-skill unsupported commands refuse rather than pretending to manage partial state.
+Typed non-skill global operations and typed non-skill `update` and `outdated` refuse rather than pretending to manage partial state.
 `remove --no-cascade` remains parseable as a deprecated compatibility option, but dependency presence is defined by declarative closure rather than historical provenance.
 
 `adopt` considers catalog-backed links in selected harnesses.
 Same-name links with different targets refuse.
 It chooses roots not reached by another installed skill, breaks uncovered cycles deterministically, augments existing direct intent, omits derived names, and fills missing selected views.
+A bundle is adopted only when every owned member links to its exact source in every selected harness, since only such a link is evidence of that bundle; a partial bundle is reported and returns `DRIFT`.
+Bundles are adopted before agents and agents before skills, so anything an adopted bundle or agent already brings in is derived rather than recorded as direct intent.
+
+`scout`, `sync`, `doctor`, `adopt`, `restore`, and `converge` take an optional `--type` that narrows a cross-type result.
+Every plan entry records its kind and name, and the plan records which declared bundles contribute each artifact, so `views.narrow` is a pure filter over a plan built from the whole manifest.
+Narrowing the manifest before planning was rejected: in `converge`, which deletes, a narrowed manifest makes every other kind look unwanted.
+`skill` and `agent` select every entry of that kind, bundle members included, while `bundle` selects entries some declared bundle contributes plus bundle-level findings.
+Entries with no kind, such as a native root collision or an unconfigured Pi agent path, survive every selection because they block every kind alike.
+A narrowed run therefore deletes only inside its selection, and `converge --type bundle` never prunes a link no bundle contributes.
 
 `converge --all` uses [kura/projects.py](kura/projects.py).
 It recursively scans cwd unless explicit roots replace it, includes each root, has no depth cap, does not follow directory symlinks, and prunes hidden, VCS, dependency, cache, build, and vendor trees.
@@ -209,7 +218,8 @@ Claude Code's private project registry and a Kura project index are not consulte
 
 Bare `sync` derives global skill policy and standalone global agent policy once and reconciles every globally enabled harness.
 It includes skill dependencies required by global agents.
-`sync --type skill` narrows to skills.
+`sync --type skill` narrows to skills but keeps the skill dependencies of global agents, so it and a bare `sync` agree on every skill link instead of undoing each other; and `sync --type agent` to standalone global agents without planning any skill view.
+`sync --type bundle` refuses, because bundles are project-only.
 It prunes only symlinks resolving under the current catalog and exact managed agent sources.
 Real paths, foreign links, and legacy plugin state are outside its ownership.
 
@@ -236,7 +246,8 @@ Any missing, stale, foreign, or real-path view makes the row `drift` and names e
 JSON stdout contains only JSON, while initialization notices remain on stderr.
 Skill and bundle listings filter by exact registry tag with `--group TAG` and group human output with bare `--group`; standalone agent listings remain ungrouped.
 
-Bare `doctor` orders actionable drift before informational notes across implemented skill and agent behavior.
+Bare `doctor` orders actionable drift before informational notes across skill, agent, and bundle behavior.
+`doctor --type` narrows its plans and typed catalog findings to that kind, while machine, project, catalog-wide, instruction, executable, trust, and legacy findings carry no kind and are always shown.
 Invalid machine configuration, invalid manifests, missing content, dependency failures, missing required Pi agent paths, collisions, and incorrect native views return `DRIFT`.
 Missing executables, trust not granted, split instructions, the need to enable a Markdown-compatible Pi subagent extension, catalog sources with no registry entry, and preserved legacy state are notes.
 It can run without a project manifest and still checks the fixed catalog and global state.

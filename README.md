@@ -213,6 +213,11 @@ A collision in any harness prevents every write.
 Artifact commands require an explicit type where the type is meaningful.
 Supported project artifact types are `skill`, `agent`, and `bundle`.
 `plugin` remains parseable only to refuse with migration guidance.
+`scout`, `sync`, `doctor`, `adopt`, `restore`, and `converge` take an optional `--type` that narrows a result spanning every kind.
+`--type skill` and `--type agent` select every artifact of that kind, bundle members included.
+`--type bundle` selects what a declared bundle contributes, which is its owned skills and agents, its requirements, and their dependency closure, plus bundle-level findings such as a missing bundle.
+A refusal that concerns no single artifact, such as a native root collision or an unconfigured Pi agent path, applies to every selection.
+A narrowed run never creates or deletes a link outside its selection.
 If agents were previously deployed by dotfiles, Ansible, or Claude Code plugins, remove or hand off those links manually before Kura can own the same native path.
 
 ### `init`
@@ -277,12 +282,14 @@ The `state` enumeration is `available`, `linked`, `drift`, or `missing`.
 ### `scout`
 
 ```text
-kura scout [--type skill] [--focus TAG] [--add]
+kura scout [--type {skill,agent,bundle}] [--focus TAG] [--add]
 ```
 
-`scout` requires root `kura.json` and recommends only skills with relevant registry group metadata.
+`scout` requires root `kura.json` and recommends project-scoped skills, standalone agents, and bundles whose registry `groups` match the project.
+Anything the project already declares or derives, and anything global, is never offered.
+Without `--type`, every kind is considered and each row names its kind when more than one kind is shown.
 `--focus` promotes one opaque tag.
-`--add` sends strong matches through the same project transaction as `add`.
+`--add` sends strong matches through the same project transaction as `add`, one transaction per kind, and stops at the first refusal.
 
 ### `add`
 
@@ -320,11 +327,11 @@ Global `remove` supports skills only; typed non-skill global removes are refused
 ### `restore`
 
 ```text
-kura restore [--type skill] [--dry-run]
+kura restore [--type {skill,agent,bundle}] [--dry-run]
 ```
 
-`restore` currently supports `--type skill` only.
 Bare `restore` requires root `kura.json` and creates missing direct and derived skill and agent links in every selected harness.
+`--type` restores only the selected kind.
 It deletes nothing.
 A conflicting path refuses before any write.
 A missing direct catalog skill remains declared and returns `DRIFT`.
@@ -332,10 +339,12 @@ A missing direct catalog skill remains declared and returns `DRIFT`.
 ### `converge`
 
 ```text
-kura converge [--type skill] [--all] [--root PATH] [--dry-run] [--verbose | --quiet]
+kura converge [--type {skill,agent,bundle}] [--all] [--root PATH] [--dry-run] [--verbose | --quiet]
 ```
 
 Single-project `converge` requires root `kura.json` and reconciles every selected view.
+`--type` reconciles only the selected kind and deletes only stale links inside it.
+`converge --type bundle` never prunes a link no declared bundle contributes; bare `converge` remains the pruning path.
 `--all` recursively scans cwd, or repeatable `--root` trees when supplied.
 The scan has no depth cap, does not follow directory symlinks, prunes hidden, VCS, dependency, cache, build, and vendor trees, and recognizes only root `kura.json` files.
 `--dry-run` uses the application plan without writing.
@@ -345,23 +354,29 @@ The scan has no depth cap, does not follow directory symlinks, prunes hidden, VC
 ### `adopt`
 
 ```text
-kura adopt [--type skill] [--dry-run]
+kura adopt [--type {skill,agent,bundle}] [--dry-run]
 ```
 
 `adopt` requires root `kura.json` and considers catalog-backed links from selected harnesses.
 Same-name links resolving to different targets refuse.
 Inferred direct roots augment existing direct intent, derived dependencies are omitted from the manifest, and missing selected views are filled.
+`--type agent` adopts root agent links into the manifest's agents.
+`--type bundle` adopts a bundle only when every owned member is linked to its exact source in every selected harness.
+A partially linked bundle is reported, never adopted, and the run returns `DRIFT`.
+Bare `adopt` covers all three kinds, bundles first, so a skill or agent an adopted bundle already brings in is not also recorded as direct intent.
 Real directories and foreign links are never adopted.
 
 ### `sync`
 
 ```text
-kura sync [--type skill] [--dry-run]
+kura sync [--type {skill,agent,bundle}] [--dry-run]
 ```
 
 Bare `sync` projects the recursive registry-global skill closure and registry-global standalone agents into every globally enabled harness.
 Bare `sync` also includes skill dependencies of selected global agents.
-`sync --type skill` narrows to the skill registry policy without changing agent views.
+`sync --type skill` converges the same skill views as a bare `sync`, global agents' skill dependencies included, without changing agent views.
+`sync --type agent` converges registry-global standalone agents without changing skill views.
+`sync --type bundle` refuses with `USAGE`, because bundles are project-only.
 It prunes only symlinks resolving under the fixed catalog and never touches real paths or foreign links.
 If desired global state and managed state are both empty, the result succeeds.
 If desired global state is empty while managed global links exist, it returns `DRIFT` and deletes nothing.
@@ -383,10 +398,11 @@ Read-only `outdated` may inspect the fixed catalog without saved machine configu
 ### `doctor`
 
 ```text
-kura doctor [--type skill]
+kura doctor [--type {skill,agent,bundle}]
 ```
 
-Bare `doctor` checks the catalog, machine configuration, project manifest when present, and implemented skill and agent views.
+Bare `doctor` checks the catalog, machine configuration, project manifest when present, and skill, agent, and bundle views.
+`--type` reports only findings about the selected kind, while machine, project, catalog-wide, instruction, executable, trust, and legacy-state findings are always shown.
 It can run without a project manifest.
 It returns `DRIFT` for invalid configuration or manifests, missing desired content, unsafe collisions, missing required Pi agent paths, and incorrect native views.
 Missing executables, trust state, split instructions, and preserved legacy rows are informational notes.
