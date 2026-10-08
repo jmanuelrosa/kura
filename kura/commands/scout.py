@@ -13,7 +13,7 @@ flag installs it.
 
 `--type` is optional here for the same reason as on `doctor` and `adopt`: a
 project's stack implies artifacts of all three kinds: a React repo wants react
-skills and the frontend seat plugin, and a required `--type` would make a partial
+skills and the frontend seat bundle, and a required `--type` would make a partial
 answer the only one available. Given, it narrows the whole report.
 
 Nothing already available here is ever offered, and "available" is wider than
@@ -49,7 +49,7 @@ ALREADY = "Already in this project"
 
 HEADER = "🔎 Scouting {}"
 
-TYPE_ORDER = (cat.SKILL,)
+TYPE_ORDER = (cat.SKILL, cat.AGENT, cat.BUNDLE)
 
 
 @dataclass(frozen=True)
@@ -71,8 +71,9 @@ def describe(art):
 
     Three sources because the three types keep their prose in three places: a
     skill's SKILL.md frontmatter, an agent's own frontmatter, a plugin's manifest.
+    A bundle keeps none of its own, so it has no gist.
     """
-    if art.source is None:
+    if art.source is None or art.type == cat.BUNDLE:
         return ""
     if art.type == cat.PLUGIN:
         manifest = art.source / cat.PLUGIN_MANIFEST
@@ -90,29 +91,54 @@ def describe(art):
         return ""
 
 
-def available(catalog, effective, configured, machine=None, catalog_root=None, home=None):
-    """Project-scoped candidates and configured skills."""
+def configured_names(catalog, manifest):
+    """{kind: names this project already has}, closure included.
+
+    A skill or agent a declared bundle or agent brings in is already here, so it
+    is never offered again.
+    """
+    resolution = cat.bundle_resolution(catalog, manifest.bundles, manifest.skills, manifest.agents)
+    return {
+        cat.SKILL: set(manifest.skills) | set(resolution.skills),
+        cat.AGENT: set(manifest.agents) | set(resolution.agents),
+        cat.BUNDLE: set(manifest.bundles),
+    }
+
+
+def _present(art):
+    if art.source is None:
+        return False
+    return art.source.is_file() if art.type == cat.AGENT else art.source.is_dir()
+
+
+def _globally_linked(art, machine, catalog_root, home):
+    if machine is None or art.type == cat.BUNDLE:
+        return False
+    roots = views.accepted_artifact_roots(catalog_root, art.type) if catalog_root is not None else ()
+    for harness_id in machine.global_harnesses:
+        if art.type == cat.AGENT:
+            path = harnesses.agent_path(harness_id, art.name, home, machine_config=machine)
+        else:
+            path = harnesses.skill_path(harness_id, art.name, home)
+        if path is None or views.classify(path, art.source, roots).state != views.CURRENT:
+            return False
+    return True
+
+
+def available(catalog, effective, configured, machine=None, catalog_root=None, home=None, kinds=TYPE_ORDER):
+    """Project-scoped candidates and configured artifacts of `kinds`."""
     candidates, already = [], []
-    roots = views.accepted_skill_roots(catalog_root) if catalog_root is not None else ()
-    for art in cat.visible(catalog, cat.SKILL):
-        if scope.belongs_global(art, effective):
-            continue
-        if art.name in configured:
-            already.append(art)
-            continue
-        if not art.source.is_dir() or art.catalog_error:
-            continue
-        globally_linked = machine is not None and all(
-            views.classify(
-                harnesses.skill_path(harness_id, art.name, home),
-                art.source,
-                roots,
-            ).state
-            == views.CURRENT
-            for harness_id in machine.global_harnesses
-        )
-        if not globally_linked:
-            candidates.append(art)
+    for kind in kinds:
+        for art in cat.visible(catalog, kind):
+            if kind != cat.BUNDLE and scope.belongs_global(art, effective):
+                continue
+            if art.name in configured[kind]:
+                already.append(art)
+                continue
+            if not _present(art) or art.catalog_error:
+                continue
+            if not _globally_linked(art, machine, catalog_root, home):
+                candidates.append(art)
     return candidates, already
 
 
@@ -317,14 +343,21 @@ def render(strong, consider, already, focus, project, emit=print):
 
 
 def install(matches):
-    return add.run(
-        SimpleNamespace(
-            names=[match.name for match in matches],
-            group=None,
-            want_global=False,
-            type=cat.SKILL,
-        )
-    )
+    """Add `matches` one type at a time, stopping at the first refusal.
+
+    `add` takes one --type per call, so a mixed shortlist is several transactions;
+    stopping keeps a refusal for one type from being followed by a second change.
+    """
+    by_kind = {}
+    for match in matches:
+        by_kind.setdefault(match.kind, []).append(match.name)
+    for kind in TYPE_ORDER:
+        if kind not in by_kind:
+            continue
+        code = add.run(SimpleNamespace(names=by_kind[kind], group=None, want_global=False, type=kind))
+        if code != errors.OK:
+            return code
+    return errors.OK
 
 
 def run(args):
@@ -334,14 +367,15 @@ def run(args):
         manifest = common.manifest(project)
         catalog = common.loaded_catalog(catalog_root)
         effective = scope.global_set(catalog)
-        configured = set(manifest.skills) | set(cat.resolve(catalog, manifest.skills).names)
+        kinds = TYPE_ORDER if args.type is None else (args.type,)
         candidates, already = available(
             catalog,
             effective,
-            configured,
+            configured_names(catalog, manifest),
             machine,
             catalog_root,
             paths.home(),
+            kinds,
         )
 
         direct = fingerprint.read(project)
@@ -350,12 +384,12 @@ def run(args):
             for tag, evidence in fingerprint.fallback(direct).items():
                 indirect.setdefault(tag, evidence)
         if args.focus:
-            if not cat.in_group(catalog, cat.SKILL, args.focus):
+            if not any(cat.in_group(catalog, kind, args.focus) for kind in kinds):
                 ui.warn(
                     f"nothing in the catalogue carries '{args.focus}', so --focus did nothing",
                     stream=sys.stderr,
                 )
-                ui.note("`kura list` prints each skill with its tags.", stream=sys.stderr)
+                ui.note("`kura list --type TYPE` prints each artifact with its tags.", stream=sys.stderr)
             direct.setdefault(args.focus, f"requested focus '{args.focus}'")
             indirect.pop(args.focus, None)
 
