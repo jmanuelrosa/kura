@@ -83,8 +83,8 @@ def _project(args, machine, catalog_root, catalog, names, elsewhere, project, ma
         ui.note(f"The global half of '{args.group}' is untouched: {', '.join(elsewhere)}")
     ui.done(f"{len(additions)} skill changes, {plan.changes} link changes")
     if plan.missing:
-        for name, harness_id, source in plan.missing:
-            ui.warn(f"'{name}' remains declared but is missing from the catalog.")
+        for row in plan.missing:
+            ui.warn(f"'{row.name}' remains declared but is missing from the catalog.")
         return errors.DRIFT
     return errors.OK
 
@@ -106,7 +106,7 @@ def _global(args, machine, catalog_root, catalog, names, elsewhere):
     )
     common.refuse_plan(plan, "add the selected global skills")
     if plan.missing:
-        name = plan.missing[0][0]
+        name = plan.missing[0].name
         raise common.Refusal(errors.NOT_FOUND, f"'{name}' is missing from the catalog.")
     if not plan.actions:
         raise common.Refusal(errors.ALREADY, "Every selected skill is already linked globally.")

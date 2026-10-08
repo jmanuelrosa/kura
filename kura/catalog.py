@@ -88,6 +88,10 @@ class Bundle:
     catalog_error: str = None
     groups: tuple = ()
 
+    @property
+    def type(self):
+        return BUNDLE
+
 
 def _validate_registry_name(name):
     if (
@@ -559,15 +563,6 @@ def resolve(catalog, direct):
     )
 
 
-def global_resolution(catalog):
-    roots = [
-        art.name
-        for art in of_type(catalog, SKILL)
-        if art.is_global
-    ]
-    return resolve(catalog, roots)
-
-
 @dataclass(frozen=True)
 class BundleResolution:
     bundles: tuple
@@ -577,11 +572,15 @@ class BundleResolution:
     missing_skills: tuple = ()
     missing_agents: tuple = ()
     missing_dependencies: tuple = ()
-    invalid: tuple = ()
+    typed_invalid: tuple = ()
 
     @property
     def names(self):
         return self.skills
+
+    @property
+    def invalid(self):
+        return tuple(sorted({(name, detail) for _, name, detail in self.typed_invalid}))
 
     @property
     def complete(self):
@@ -612,10 +611,10 @@ def bundle_resolution(catalog, names, direct_skills=(), direct_agents=()):
     def add_artifact(target, art, owner):
         previous = target.get(art.name)
         if previous is not None and _source_key(previous.source) != _source_key(art.source):
-            invalid.append((art.name, f"{owner} conflicts with {previous.source}"))
+            invalid.append((art.type, art.name, f"{owner} conflicts with {previous.source}"))
             return
         if art.catalog_error:
-            invalid.append((art.name, art.catalog_error))
+            invalid.append((art.type, art.name, art.catalog_error))
             return
         target[art.name] = art
 
@@ -624,7 +623,7 @@ def bundle_resolution(catalog, names, direct_skills=(), direct_agents=()):
         if art is None or art.catalog_error or not art.source.is_dir():
             missing_skills.append(name)
             if art is not None and art.catalog_error:
-                invalid.append((name, art.catalog_error))
+                invalid.append((SKILL, name, art.catalog_error))
             continue
         add_artifact(reached_skills, art, "direct skill")
     for name in requested_agents:
@@ -632,7 +631,7 @@ def bundle_resolution(catalog, names, direct_skills=(), direct_agents=()):
         if art is None or art.catalog_error or not art.source.is_file():
             missing_agents.append(name)
             if art is not None and art.catalog_error:
-                invalid.append((name, art.catalog_error))
+                invalid.append((AGENT, name, art.catalog_error))
             continue
         add_artifact(reached_agents, art, "direct agent")
 
@@ -642,7 +641,7 @@ def bundle_resolution(catalog, names, direct_skills=(), direct_agents=()):
             missing_bundles.append(name)
             continue
         if bundle.catalog_error:
-            invalid.append((name, bundle.catalog_error))
+            invalid.append((BUNDLE, name, bundle.catalog_error))
             continue
         reached_bundles.append(name)
         for art in bundle.skills:
@@ -654,7 +653,7 @@ def bundle_resolution(catalog, names, direct_skills=(), direct_agents=()):
             if art is None or art.catalog_error or not art.source.is_dir():
                 missing_skills.append(skill_name)
                 if art is not None and art.catalog_error:
-                    invalid.append((skill_name, art.catalog_error))
+                    invalid.append((SKILL, skill_name, art.catalog_error))
             else:
                 add_artifact(reached_skills, art, f"bundle '{name}' requirement")
         for agent_name in bundle.requires_agents:
@@ -662,7 +661,7 @@ def bundle_resolution(catalog, names, direct_skills=(), direct_agents=()):
             if art is None or art.catalog_error or not art.source.is_file():
                 missing_agents.append(agent_name)
                 if art is not None and art.catalog_error:
-                    invalid.append((agent_name, art.catalog_error))
+                    invalid.append((AGENT, agent_name, art.catalog_error))
             else:
                 add_artifact(reached_agents, art, f"bundle '{name}' requirement")
 
@@ -672,7 +671,7 @@ def bundle_resolution(catalog, names, direct_skills=(), direct_agents=()):
             if art is None or art.catalog_error or not art.source.is_dir():
                 missing_skills.append(skill_name)
                 if art is not None and art.catalog_error:
-                    invalid.append((skill_name, art.catalog_error))
+                    invalid.append((SKILL, skill_name, art.catalog_error))
             else:
                 add_artifact(reached_skills, art, f"agent '{agent.name}' dependency")
 
@@ -686,7 +685,7 @@ def bundle_resolution(catalog, names, direct_skills=(), direct_agents=()):
         art = skill_map.get(name)
         if art is not None:
             add_artifact(reached_skills, art, "skill dependency")
-    invalid.extend(skill_resolution.invalid)
+    invalid.extend((SKILL, name, detail) for name, detail in skill_resolution.invalid)
 
     return BundleResolution(
         tuple(sorted(set(reached_bundles))),

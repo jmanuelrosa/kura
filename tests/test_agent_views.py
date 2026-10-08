@@ -128,7 +128,7 @@ def test_pi_agent_view_requires_a_project_agent_path(tmp_path):
     )
 
     assert plan.refused
-    assert any("Pi: project agent path is not configured" == item for item in plan.blocked)
+    assert any("Pi: project agent path is not configured" == item.detail for item in plan.blocked)
 
 
 def test_project_delete_removes_declared_bundle_agent_link(tmp_path):

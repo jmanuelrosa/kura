@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 import os
 from pathlib import Path
+from typing import NamedTuple
 
 from . import catalog as cat
 from . import harnesses
@@ -23,6 +24,36 @@ class EntryState:
     expected: Snapshot = None
 
 
+@dataclass(frozen=True)
+class Blocked:
+    """Why a plan cannot apply, and which artifact it concerns.
+
+    `kind` stays None for a harness-wide refusal, such as a root collision or an
+    unconfigured agent root, which every narrowed run must still respect.
+    """
+
+    detail: str
+    kind: str = None
+    name: str = None
+
+    def __str__(self):
+        return self.detail
+
+
+class Linked(NamedTuple):
+    harness: str
+    name: str
+    path: Path
+    kind: str
+
+
+class Missing(NamedTuple):
+    name: str
+    harness: str
+    source: Path
+    kind: str
+
+
 @dataclass
 class Plan:
     actions: list = field(default_factory=list)
@@ -33,6 +64,7 @@ class Plan:
     logical_agents: set = field(default_factory=set)
     notes: list = field(default_factory=list)
     global_fallbacks: dict = field(default_factory=dict)
+    bundled_by: dict = field(default_factory=dict)
 
     @property
     def changes(self):
@@ -52,6 +84,8 @@ class Plan:
         self.notes.extend(other.notes)
         for harness_id, names in other.global_fallbacks.items():
             self.global_fallbacks.setdefault(harness_id, set()).update(names)
+        for key, bundles in other.bundled_by.items():
+            self.bundled_by[key] = tuple(sorted(set(self.bundled_by.get(key, ())) | set(bundles)))
         return self
 
     def ordered_actions(self):
@@ -201,7 +235,7 @@ def _add_desired(
     root = _native_root(kind, harness_id, home, project, machine_config)
     if root is None:
         if names:
-            plan.blocked.append(_missing_root_message(harness_id, project))
+            plan.blocked.append(Blocked(_missing_root_message(harness_id, project)))
         return None
     collision, expected_ancestors = _root_preflight(
         root,
@@ -209,12 +243,12 @@ def _add_desired(
         replace_root,
     )
     if collision:
-        plan.blocked.append(f"{harnesses.get(harness_id).display_name}: {collision}")
+        plan.blocked.append(Blocked(f"{harnesses.get(harness_id).display_name}: {collision}"))
         return None
     for name in sorted(names):
         art = artifact_map.get(name)
         if art is None or not _source_exists(kind, art.source):
-            plan.missing.append((name, harness_id, art.source if art else None))
+            plan.missing.append(Missing(name, harness_id, art.source if art else None, kind))
             continue
         path = _native_path(kind, harness_id, name, home, project, machine_config)
         state = (
@@ -223,7 +257,7 @@ def _add_desired(
             else classify(path, art.source, roots, exact_sources)
         )
         if state.state == CURRENT:
-            plan.current.append((harness_id, name, state.path))
+            plan.current.append(Linked(harness_id, name, state.path, kind))
         elif state.state == MISSING:
             plan.actions.append(
                 Action(
@@ -234,6 +268,7 @@ def _add_desired(
                     skill=name,
                     expected=state.expected,
                     expected_ancestors=expected_ancestors,
+                    kind=kind,
                 )
             )
         elif state.state == STALE and relink:
@@ -246,14 +281,19 @@ def _add_desired(
                     skill=name,
                     expected=state.expected,
                     expected_ancestors=expected_ancestors,
+                    kind=kind,
                 )
             )
         elif state.state == STALE:
             plan.blocked.append(
-                f"{harnesses.get(harness_id).display_name}: {state.path} points at {state.target}"
+                Blocked(
+                    f"{harnesses.get(harness_id).display_name}: {state.path} points at {state.target}",
+                    kind,
+                    name,
+                )
             )
         else:
-            plan.blocked.append(_collision(harness_id, name, state))
+            plan.blocked.append(Blocked(_collision(harness_id, name, state), kind, name))
     return expected_ancestors
 
 
@@ -337,17 +377,39 @@ def _required_missing_skills(resolution, manifest):
 
 def _add_resolution_findings(plan, resolution, manifest):
     for parent, name in resolution.missing_dependencies:
-        plan.blocked.append(f"skill '{parent}' requires missing dependency '{name}'")
-    for name, detail in resolution.invalid:
-        plan.blocked.append(f"skill '{name}' has invalid catalog metadata: {detail}")
+        plan.blocked.append(
+            Blocked(f"skill '{parent}' requires missing dependency '{name}'", cat.SKILL, parent)
+        )
+    for kind, name, detail in resolution.typed_invalid:
+        plan.blocked.append(Blocked(f"{kind} '{name}' has invalid catalog metadata: {detail}", kind, name))
     for name in resolution.missing_bundles:
-        plan.blocked.append(f"bundle '{name}' is missing from the catalog")
+        plan.blocked.append(Blocked(f"bundle '{name}' is missing from the catalog", cat.BUNDLE, name))
     for name in _required_missing_skills(resolution, manifest):
-        plan.blocked.append(f"skill '{name}' is missing from the catalog")
+        plan.blocked.append(Blocked(f"skill '{name}' is missing from the catalog", cat.SKILL, name))
     for name in resolution.missing_agents:
-        plan.blocked.append(f"agent '{name}' is missing from the catalog")
+        plan.blocked.append(Blocked(f"agent '{name}' is missing from the catalog", cat.AGENT, name))
     for name in _direct_missing_skills(resolution, manifest):
-        plan.missing.append((name, None, None))
+        plan.missing.append(Missing(name, None, None, cat.SKILL))
+
+
+def _bundled_by(catalog, manifest):
+    """{(kind, name): bundles in the manifest whose closure contributes it}.
+
+    Each bundle is resolved alone, so an artifact that is also direct intent still
+    counts as contributed, and a missing member is attributed to the bundle that
+    needed it.
+    """
+    contributors = {}
+    for bundle_name in sorted(set(manifest.bundles if manifest else ())):
+        resolution = cat.bundle_resolution(catalog, [bundle_name])
+        keys = [(cat.BUNDLE, bundle_name)]
+        keys.extend((cat.SKILL, name) for name in (*resolution.skills, *resolution.missing_skills))
+        keys.extend((cat.SKILL, name) for pair in resolution.missing_dependencies for name in pair)
+        keys.extend((cat.AGENT, name) for name in (*resolution.agents, *resolution.missing_agents))
+        keys.extend((kind, name) for kind, name, _ in resolution.typed_invalid)
+        for key in keys:
+            contributors.setdefault(key, set()).add(bundle_name)
+    return contributors
 
 
 def _global_agent_names(catalog):
@@ -389,11 +451,11 @@ def _root_skill_selected(catalog, name, art):
 def _preflight_for_delete(plan, kind, harness_id, home, project, machine_config, replace_root=False):
     root = _native_root(kind, harness_id, home, project, machine_config)
     if root is None:
-        plan.blocked.append(_missing_root_message(harness_id, project))
+        plan.blocked.append(Blocked(_missing_root_message(harness_id, project)))
         return None
     collision, expected_ancestors = _root_preflight(root, _root_anchor(project, home), replace_root)
     if collision:
-        plan.blocked.append(f"{harnesses.get(harness_id).display_name}: {collision}")
+        plan.blocked.append(Blocked(f"{harnesses.get(harness_id).display_name}: {collision}"))
         return None
     return expected_ancestors
 
@@ -427,6 +489,7 @@ def _delete_unwanted(
                     skill=name,
                     expected=before,
                     expected_ancestors=expected_ancestors,
+                    kind=kind,
                 )
             )
 
@@ -464,6 +527,10 @@ def project_plan(
     )
     plan.logical_skills.update(new_resolution.skills)
     plan.logical_agents.update(new_resolution.agents)
+    contributors = _bundled_by(old_catalog or catalog, old_manifest)
+    for key, bundles in _bundled_by(catalog, new_manifest).items():
+        contributors.setdefault(key, set()).update(bundles)
+    plan.bundled_by = {key: tuple(sorted(bundles)) for key, bundles in contributors.items()}
     agent_candidates = (
         set(old_resolution.agents)
         | set(old_manifest.agents if old_manifest else ())
@@ -473,10 +540,14 @@ def project_plan(
     _add_resolution_findings(plan, new_resolution, new_manifest)
     removed_bundles = set(old_manifest.bundles if old_manifest else ()) - set(new_manifest.bundles)
     for name in sorted(removed_bundles & set(old_resolution.missing_bundles)):
-        plan.blocked.append(f"bundle '{name}' is missing; cannot prove which old links to remove")
+        plan.blocked.append(
+            Blocked(f"bundle '{name}' is missing; cannot prove which old links to remove", cat.BUNDLE, name)
+        )
     for name, detail in old_resolution.invalid:
         if name in removed_bundles:
-            plan.blocked.append(f"bundle '{name}' is invalid; cannot prove old links to remove: {detail}")
+            plan.blocked.append(
+                Blocked(f"bundle '{name}' is invalid; cannot prove old links to remove: {detail}", cat.BUNDLE, name)
+            )
 
     global_names = _global_skill_names(catalog)
     pending = set(pending_global)
@@ -501,7 +572,11 @@ def project_plan(
                 plan.global_fallbacks.setdefault(harness_id, set()).add(name)
             elif status != CURRENT:
                 plan.blocked.append(
-                    f"{harnesses.get(harness_id).display_name}: global link for '{name}' is not current at {destination}"
+                    Blocked(
+                        f"{harnesses.get(harness_id).display_name}: global link for '{name}' is not current at {destination}",
+                        cat.SKILL,
+                        name,
+                    )
                 )
         project_names[harness_id] = local
 
@@ -524,7 +599,11 @@ def project_plan(
                 local_agents.discard(name)
             elif status != MISSING:
                 plan.blocked.append(
-                    f"{harnesses.get(harness_id).display_name}: global link for agent '{name}' is not current at {destination}"
+                    Blocked(
+                        f"{harnesses.get(harness_id).display_name}: global link for agent '{name}' is not current at {destination}",
+                        cat.AGENT,
+                        name,
+                    )
                 )
         project_agent_names[harness_id] = local_agents
 
@@ -663,7 +742,7 @@ def _append_global_prunes(
         root = _native_root(kind, harness_id, home, None, machine_config)
         if root is None:
             if kind == cat.AGENT and harness_id in previous and harness_id not in selected and desired:
-                plan.blocked.append(_missing_root_message(harness_id, None))
+                plan.blocked.append(Blocked(_missing_root_message(harness_id, None)))
             continue
         if harness_id in selected:
             expected_ancestors = root_expectations.get((kind, harness_id))
@@ -672,14 +751,14 @@ def _append_global_prunes(
                     continue
                 collision, expected_ancestors = _root_preflight(root, home)
                 if collision:
-                    plan.blocked.append(f"{harnesses.get(harness_id).display_name}: {collision}")
+                    plan.blocked.append(Blocked(f"{harnesses.get(harness_id).display_name}: {collision}"))
                     continue
         else:
             if not root.is_dir():
                 continue
             collision, expected_ancestors = _root_preflight(root, home)
             if collision:
-                plan.blocked.append(f"{harnesses.get(harness_id).display_name}: {collision}")
+                plan.blocked.append(Blocked(f"{harnesses.get(harness_id).display_name}: {collision}"))
                 continue
         if not root.is_dir():
             continue
@@ -696,7 +775,7 @@ def _append_global_prunes(
             managed_existing.append((harness_id, path, name, before, expected_ancestors))
 
 
-def _add_global_deletes(plan, managed_existing):
+def _add_global_deletes(plan, managed_existing, kind):
     for harness_id, path, name, before, expected_ancestors in managed_existing:
         plan.actions.append(
             Action(
@@ -706,6 +785,7 @@ def _add_global_deletes(plan, managed_existing):
                 skill=name,
                 expected=before,
                 expected_ancestors=expected_ancestors,
+                kind=kind,
             )
         )
 
@@ -722,45 +802,57 @@ def global_plan(
     empty_guard=True,
     protect_empty_selected=False,
     machine_config=None,
+    kinds=(cat.SKILL, cat.AGENT),
 ):
     plan = Plan()
     skill_roots = accepted_skill_roots(catalog_root, old_catalog_roots)
     agent_roots = accepted_agent_roots(catalog_root, old_catalog_roots)
     skill_map = cat.skills(catalog)
     agent_map = cat.agents(catalog)
-    sync_agents = desired_names is None
-    resolution = _global_skill_resolution(catalog) if sync_agents else cat.resolve(catalog, desired_names)
+    sync_skills = cat.SKILL in kinds
+    sync_agents = desired_names is None and cat.AGENT in kinds
+    if not sync_skills:
+        resolution = cat.Resolution(())
+    elif desired_names is None:
+        resolution = _global_skill_resolution(catalog)
+    else:
+        resolution = cat.resolve(catalog, desired_names)
     desired_skills = set(resolution.names)
     desired_agents = set(_global_agent_names(catalog)) if sync_agents else set()
     plan.logical_skills.update(desired_skills)
     plan.logical_agents.update(desired_agents)
 
     for parent, name in resolution.missing_dependencies:
-        plan.blocked.append(f"skill '{parent}' requires missing dependency '{name}'")
+        plan.blocked.append(
+            Blocked(f"skill '{parent}' requires missing dependency '{name}'", cat.SKILL, parent)
+        )
     for name, detail in resolution.invalid:
-        plan.blocked.append(f"skill '{name}' has invalid catalog metadata: {detail}")
+        plan.blocked.append(Blocked(f"skill '{name}' has invalid catalog metadata: {detail}", cat.SKILL, name))
     for name in resolution.missing_direct:
-        plan.missing.append((name, None, None))
+        plan.missing.append(Missing(name, None, None, cat.SKILL))
     if sync_agents:
         for name in sorted(desired_agents):
             art = agent_map.get(name)
             if art is not None and art.catalog_error:
-                plan.blocked.append(f"agent '{name}' has invalid catalog metadata: {art.catalog_error}")
+                plan.blocked.append(
+                    Blocked(f"agent '{name}' has invalid catalog metadata: {art.catalog_error}", cat.AGENT, name)
+                )
 
     selected = set(harness_ids)
     previous = set(previous_harness_ids)
     root_expectations = {}
     for harness_id in sorted(selected):
-        root_expectations[(cat.SKILL, harness_id)] = _add_desired(
-            plan,
-            harness_id,
-            desired_skills,
-            home,
-            None,
-            skill_map,
-            skill_roots,
-            kind=cat.SKILL,
-        )
+        if sync_skills:
+            root_expectations[(cat.SKILL, harness_id)] = _add_desired(
+                plan,
+                harness_id,
+                desired_skills,
+                home,
+                None,
+                skill_map,
+                skill_roots,
+                kind=cat.SKILL,
+            )
         if sync_agents and desired_agents:
             root_expectations[(cat.AGENT, harness_id)] = _add_desired(
                 plan,
@@ -775,18 +867,19 @@ def global_plan(
             )
 
     managed_skills = []
-    _append_global_prunes(
-        plan,
-        managed_skills,
-        cat.SKILL,
-        selected,
-        previous,
-        root_expectations,
-        desired_skills,
-        home,
-        skill_roots,
-        prune,
-    )
+    if sync_skills:
+        _append_global_prunes(
+            plan,
+            managed_skills,
+            cat.SKILL,
+            selected,
+            previous,
+            root_expectations,
+            desired_skills,
+            home,
+            skill_roots,
+            prune,
+        )
     managed_agents = []
     if sync_agents:
         _append_global_prunes(
@@ -809,26 +902,72 @@ def global_plan(
     blocked_empty_agents = empty_guard and sync_agents and not desired_agents and selected_agents and not protect_empty_selected
     if blocked_empty_skills:
         plan.blocked.append(
-            "global skill metadata resolved to an empty set while managed global skill links still exist"
+            Blocked(
+                "global skill metadata resolved to an empty set while managed global skill links still exist",
+                cat.SKILL,
+            )
         )
     if blocked_empty_agents:
         plan.blocked.append(
-            "global agent metadata resolved to an empty set while managed global agent links still exist"
+            Blocked(
+                "global agent metadata resolved to an empty set while managed global agent links still exist",
+                cat.AGENT,
+            )
         )
     if not blocked_empty_skills:
         if empty_guard and not desired_skills and protect_empty_selected:
             managed_skills = [row for row in managed_skills if row[0] not in selected]
-        _add_global_deletes(plan, managed_skills)
+        _add_global_deletes(plan, managed_skills, cat.SKILL)
     if not blocked_empty_agents:
         if empty_guard and sync_agents and not desired_agents and protect_empty_selected:
             managed_agents = [row for row in managed_agents if row[0] not in selected]
-        _add_global_deletes(plan, managed_agents)
+        _add_global_deletes(plan, managed_agents, cat.AGENT)
 
     unique = {}
     for action in plan.actions:
         unique[action.path] = action
     plan.actions = list(unique.values())
     return plan
+
+
+def _selected(plan, kind, name, selection):
+    if selection is None or kind is None:
+        return True
+    if selection == cat.BUNDLE:
+        return bool(plan.bundled_by.get((kind, name)))
+    return kind == selection
+
+
+def narrow(plan, selection):
+    """The part of `plan` a `--type` selection acts on. Pure.
+
+    A skill or agent selection keeps every entry of that kind, bundle members
+    included. A bundle selection keeps what a declared bundle contributes, closure
+    and bundle-level findings included, so an artifact no bundle contributes is
+    never touched by it. Untyped entries survive every selection: a harness-wide
+    refusal blocks each kind alike.
+    """
+    if selection is None:
+        return plan
+
+    def keep(kind, name):
+        return _selected(plan, kind, name, selection)
+
+    fallbacks = {
+        harness_id: {name for name in names if keep(cat.SKILL, name)}
+        for harness_id, names in plan.global_fallbacks.items()
+    }
+    return Plan(
+        actions=[action for action in plan.actions if keep(action.kind, action.skill)],
+        current=[row for row in plan.current if keep(row.kind, row.name)],
+        blocked=[row for row in plan.blocked if keep(row.kind, row.name)],
+        missing=[row for row in plan.missing if keep(row.kind, row.name)],
+        logical_skills={name for name in plan.logical_skills if keep(cat.SKILL, name)},
+        logical_agents={name for name in plan.logical_agents if keep(cat.AGENT, name)},
+        notes=list(plan.notes),
+        global_fallbacks={harness_id: names for harness_id, names in fallbacks.items() if names},
+        bundled_by=dict(plan.bundled_by),
+    )
 
 
 def view_states(catalog_root, catalog, home, project, harness_ids, names):

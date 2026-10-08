@@ -1,4 +1,4 @@
-"""Reconcile every selected native skill view with project intent."""
+"""Reconcile every selected native view with project intent."""
 
 import sys
 from pathlib import Path
@@ -7,7 +7,7 @@ from .. import errors, harnesses, paths, projects, ui, views
 from . import common
 
 
-def _plan(machine, catalog_root, catalog, project):
+def _plan(machine, catalog_root, catalog, project, selection):
     try:
         manifest = common.manifest(project)
     except common.Refusal as exc:
@@ -22,8 +22,9 @@ def _plan(machine, catalog_root, catalog, project):
         machine.global_harnesses,
         machine_config=machine,
     )
-    problems = list(plan.blocked)
-    problems.extend(f"'{name}' is declared but missing from the catalog" for name, _, _ in plan.missing)
+    plan = views.narrow(plan, selection)
+    problems = [str(row) for row in plan.blocked]
+    problems.extend(f"'{row.name}' is declared but missing from the catalog" for row in plan.missing)
     return manifest, plan, problems
 
 
@@ -33,10 +34,11 @@ def _report(project, manifest, plan, args, stream):
     if (not args.all or args.verbose) and not args.quiet:
         for harness_id in manifest.harnesses:
             physical = len(
-                [row for row in plan.current if row[0] == harness_id]
+                [row for row in plan.current if row.harness == harness_id]
                 + [row for row in plan.actions if row.harness == harness_id and row.operation != "delete"]
             )
-            ui.ok(f"{harnesses.get(harness_id).display_name} skill view is current ({physical} links).")
+            noun = args.type or "skill"
+            ui.ok(f"{harnesses.get(harness_id).display_name} {noun} view is current ({physical} links).")
 
 
 def run(args):
@@ -70,7 +72,7 @@ def run(args):
         planned = []
         drift = False
         for project in found:
-            manifest, plan, problems = _plan(machine, catalog_root, catalog, project)
+            manifest, plan, problems = _plan(machine, catalog_root, catalog, project, args.type)
             if problems:
                 drift = True
                 for detail in problems:

@@ -194,12 +194,26 @@ def test_adopt_default_skill_flow_preserves_active_agent_and_bundle_intent(home,
     assert manifest.bundles == ("backend",)
 
 
-def test_adopt_non_skill_type_refuses_with_agent_guidance(capsys):
-    assert adopt_command.run(SimpleNamespace(type=cat.AGENT, dry_run=True)) == errors.USAGE
+def test_adopt_agent_type_records_linked_root_agents_and_leaves_skills_alone(home, project, monkeypatch):
+    root = _catalog(home)
+    review = _write_skill(root, "review")
+    architect = _write_agent(root, "architect")
+    config.write(config.Config(("claude",)), home)
+    state.write(project, state.Manifest(("claude",), ()))
+    for link, source in (
+        (harnesses.agent_path("claude", "architect", home, project), architect),
+        (harnesses.skill_path("claude", "review", home, project), review),
+    ):
+        link.parent.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(source)
 
-    message = capsys.readouterr().err
-    assert "adopts project skills only" in message
-    assert "--type agent" in message
+    monkeypatch.chdir(project)
+
+    assert adopt_command.run(SimpleNamespace(type=cat.AGENT, dry_run=False)) == errors.OK
+
+    manifest = state.read_strict(project)
+    assert manifest.agents == ("architect",)
+    assert manifest.skills == ()
 
 
 def test_state_merge_keeps_active_v2_intent_and_legacy_rows_inert():

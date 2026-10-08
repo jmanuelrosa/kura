@@ -106,7 +106,7 @@ def _global(args, machine, catalog_root, catalog):
             collision, expected_ancestors = views._root_preflight(root, home)
             if collision:
                 plan.blocked.append(
-                    f"{harnesses.get(harness_id).display_name}: {collision}"
+                    views.Blocked(f"{harnesses.get(harness_id).display_name}: {collision}")
                 )
                 continue
             path = harnesses.skill_path(harness_id, name, home)
@@ -120,12 +120,17 @@ def _global(args, machine, catalog_root, catalog):
                         skill=name,
                         expected=current.expected,
                         expected_ancestors=expected_ancestors,
+                        kind=cat.SKILL,
                     )
                 )
                 found.add(name)
             elif current.state in (views.REAL, views.FOREIGN):
                 plan.blocked.append(
-                    f"{harnesses.get(harness_id).display_name}: {path} is not a managed link"
+                    views.Blocked(
+                        f"{harnesses.get(harness_id).display_name}: {path} is not a managed link",
+                        cat.SKILL,
+                        name,
+                    )
                 )
     common.refuse_plan(plan, "remove the selected global skills")
     if not found:

@@ -1,7 +1,8 @@
 """Argument parsing and dispatch.
 
-`--type` is required on every command except `scout`, `sync`, `doctor` and `adopt`, where
-it narrows an otherwise cross-type result, and `trust`, which does not take it at all:
+`--type` is required on every artifact command except `scout`, `sync`, `doctor`, `adopt`,
+`restore` and `converge`, where it narrows an otherwise cross-type result, and `trust`,
+which does not take it at all:
 workspace trust is a property of a directory, not of an artifact. Nothing is inferred
 from a name: because the type is always explicit, the three namespaces are allowed to
 overlap.
@@ -40,17 +41,17 @@ COMMANDS = {
     "init": "Initialize this exact directory for selected harnesses",
     "config": "Show or change machine configuration",
     "list": "Show skills and their native harness views",
-    "scout": "Recommend registered skills for the current project",
+    "scout": "Recommend registered skills, agents and bundles for the current project",
     "add": "Add direct project intent or temporary global skill links",
     "remove": "Remove direct project intent or temporary global skill links",
-    "sync": "Converge registry-global skills across enabled harnesses",
+    "sync": "Converge registry-global skills and agents across enabled harnesses",
     "update": "Fetch skills from their upstream repos",
     "outdated": "Report which skills are behind upstream",
     "doctor": "Report configuration and native-view drift",
     "adopt": "Adopt catalog-backed native links as direct intent",
     "restore": "Recreate missing links without deleting anything",
     "trust": "Show or change selected harness trust",
-    "converge": "Reconcile selected native skill views",
+    "converge": "Reconcile selected native views",
 }
 
 # Which module runs each command. `update` and `outdated` share one: they are the same
@@ -144,7 +145,7 @@ SCOPE = {
         "Reads the catalog, global native views, and root kura.json in cwd when present."
     ),
     "scout": (
-        "Requires root kura.json in cwd and recommends only project-scoped catalog skills."
+        "Requires root kura.json in cwd and recommends only project-scoped catalog artifacts."
     ),
     "add": (
         "Changes direct intent in root kura.json, or temporary global views with --global."
@@ -153,7 +154,8 @@ SCOPE = {
         "Changes direct intent in root kura.json, or temporary global views with --global."
     ),
     "sync": (
-        "Converges registry-global skills across every globally enabled harness."
+        "Converges registry-global skills and agents across every globally enabled harness. "
+        "Bundles are project-only."
     ),
     "update": (
         "Acts on this repo's skill sources against upstream. Tied to neither a "
@@ -541,9 +543,9 @@ def build_parser():
         help="Show what would be linked without touching anything",
     )
 
-    # No _add_type, for trust's reason from the other side: what reaches pi is decided
-    # by what is on disk, and a --type could only ever converge half of a view whose
-    # whole purpose is to mirror the other directory exactly.
+    # --type is optional for restore's reason: one manifest holds every kind, so the
+    # bare run reconciles all of them. Given, it narrows the plan, and a narrowed run
+    # deletes nothing outside its own selection.
     converge = _command(sub, "converge")
     _add_type(converge, required=False)
     converge.add_argument(
@@ -609,20 +611,11 @@ def build_parser():
 
 
 def _dispatch(args):
-    type_filter = getattr(args, "type", None)
     guarded = args.command not in ("add", "remove", "update", "outdated")
-    if args.command == "list" and type_filter in ("agent", "bundle"):
-        guarded = False
-    if guarded and type_filter == LEGACY_TYPE:
+    if guarded and getattr(args, "type", None) == LEGACY_TYPE:
         return fail(
             errors.USAGE,
             "Claude Code plugins are legacy Kura state. Migrate the content to a portable bundle (`--type bundle`).",
-        )
-    if guarded and type_filter not in (None, "skill"):
-        return fail(
-            errors.USAGE,
-            f"`{args.command}` currently supports `--type skill` only. "
-            f"`--type {type_filter}` is not implemented yet.",
         )
     # Imported lazily so a usage error costs no registry read: A1 requires that a
     # missing --type touch nothing at all. import_module defers exactly as a `from`
