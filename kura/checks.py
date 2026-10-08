@@ -89,44 +89,36 @@ def unregistered_notes(sources):
     ]
 
 
-def _missing_finding(name, harness_id, source):
-    kind = cat.AGENT if source is not None and str(source).endswith(cat.SUFFIX[cat.AGENT]) else cat.SKILL
+def _missing_finding(row):
     return Finding(
         "missing-intent",
         PROBLEM,
-        f"{kind} '{name}'",
+        f"{row.kind} '{row.name}'",
         "declared but missing from the catalog",
-        kind,
+        row.kind,
     )
 
 
-def _action_kind(action):
-    if action.target is not None and action.target.is_file():
-        return cat.AGENT
-    if str(action.path).endswith(cat.SUFFIX[cat.AGENT]):
-        return cat.AGENT
-    return cat.SKILL
-
-
 def view_plan(plan, subject):
-    findings = [_missing_finding(name, harness_id, source) for name, harness_id, source in plan.missing]
-    for detail in plan.blocked:
+    findings = [_missing_finding(row) for row in plan.missing]
+    for row in plan.blocked:
+        detail = row.detail
         if "requires missing dependency" in detail:
             check = "missing-dependency"
-        elif "invalid catalog metadata" in detail or "has invalid catalog metadata" in detail:
+        elif "invalid catalog metadata" in detail:
             check = "catalog-name"
         elif "global link" in detail and "not current" in detail:
             check = "native-view-drift"
         else:
             check = "unsafe-view"
-        findings.append(Finding(check, PROBLEM, subject, detail))
+        findings.append(Finding(check, PROBLEM, subject, detail, row.kind))
     findings.extend(
         Finding(
             "native-view-drift",
             PROBLEM,
             f"{harnesses.get(action.harness).display_name} view",
             f"{action.skill}: {action.operation} required at {action.path}",
-            _action_kind(action),
+            action.kind,
         )
         for action in plan.actions
         if action.operation in ("create", "relink", "delete")

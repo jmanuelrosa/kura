@@ -211,7 +211,7 @@ def _render_plan(
             f"{_counted(len(combined.current), 'link')} already current"
         )
         if combined.missing:
-            missing_names = sorted({name for name, _, _ in combined.missing})
+            missing_names = sorted({row.name for row in combined.missing})
             verb = "is" if len(missing_names) == 1 else "are"
             print(f"  {_counted(len(missing_names), 'catalog skill')} {verb} missing: {', '.join(missing_names)}")
 
@@ -257,15 +257,15 @@ def _render_plan(
             )
         else:
             print(f"  {action.operation}: {profile.display_name} native skill root at {ui.path(action.path)}")
-    for harness_id, name, path in sorted(combined.current):
-        print(f"  current: {harnesses.get(harness_id).display_name} '{name}' at {ui.path(path)}")
-    for name, harness_id, source in sorted(
+    for row in sorted(combined.current):
+        print(f"  current: {harnesses.get(row.harness).display_name} '{row.name}' at {ui.path(row.path)}")
+    for row in sorted(
         combined.missing,
-        key=lambda row: (row[1] or "", row[0], str(row[2] or "")),
+        key=lambda row: (row.harness or "", row.name, str(row.source or "")),
     ):
-        owner = f"{harnesses.get(harness_id).display_name}: " if harness_id else ""
-        location = f" at {ui.path(source)}" if source else ""
-        print(f"  missing: {owner}'{name}'{location}")
+        owner = f"{harnesses.get(row.harness).display_name}: " if row.harness else ""
+        location = f" at {ui.path(row.source)}" if row.source else ""
+        print(f"  missing: {owner}'{row.name}'{location}")
 
     print("\nState details")
     for action in final:

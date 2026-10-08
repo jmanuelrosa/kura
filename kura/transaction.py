@@ -50,6 +50,7 @@ class Action:
     skill: str = None
     expected: Snapshot = None
     expected_ancestors: tuple = ()
+    kind: str = None
 
     def __post_init__(self):
         if self.expected is None:

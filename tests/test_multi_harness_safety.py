@@ -57,7 +57,7 @@ def test_project_native_root_checks_existing_directory_symlink_ancestors(tmp_pat
 
     assert plan.refused
     assert any(
-        f"{project / '.claude'} is a directory symlink" in item
+        f"{project / '.claude'} is a directory symlink" in item.detail
         for item in plan.blocked
     )
 
@@ -116,7 +116,7 @@ def test_global_native_root_checks_existing_directory_symlink_ancestors(tmp_path
 
     assert plan.refused
     assert any(
-        f"{home / '.agents'} is a directory symlink" in item
+        f"{home / '.agents'} is a directory symlink" in item.detail
         for item in plan.blocked
     )
 
