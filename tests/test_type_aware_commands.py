@@ -460,6 +460,20 @@ def test_untyped_scout_covers_every_kind_with_a_kind_suffix(env, capsys):
     assert "(bundle)" in out
 
 
+def test_scout_folds_a_bundle_requirement_into_the_bundle_and_names_its_agent(env, capsys):
+    _, project, root = env
+    _skill(root, "review-skill", groups=["review"])
+    _bundle(root, "review-kit", skill="kit-skill", agent="kit-agent", groups=["review"], requires={"skills": ["review-skill"]})
+    state.write(project, _v2())
+
+    assert cli.main(["scout", "--focus", "review"]) == errors.OK
+
+    out = capsys.readouterr().out
+    assert "kura add review-kit --type bundle" in out
+    assert "--type skill" not in out
+    assert "kit-agent (agent)" in out
+
+
 def test_scout_type_bundle_add_installs_the_bundle_and_then_counts_it_as_here(env, capsys):
     home, project, root = env
     _scout_catalog(root)

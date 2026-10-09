@@ -288,6 +288,9 @@ kura scout [--type {skill,agent,bundle}] [--focus TAG] [--add]
 `scout` requires root `kura.json` and recommends project-scoped skills, standalone agents, and bundles whose registry `groups` match the project.
 Anything the project already declares or derives, and anything global, is never offered.
 Without `--type`, every kind is considered and each row names its kind when more than one kind is shown.
+A tag naming a technology the project uses makes a strong match; a persona or topic tag does only when it covers at least half of the tags the artifact carries that scout can observe, so generic artifacts sharing one broad tag stay in the weaker tier.
+Within a tier, matches on tags few artifacts carry rank above matches on common ones.
+Each bundle or agent row lists what installing it adds, its own agents included, and a skill or agent an offered bundle or agent already brings is not offered separately.
 `--focus` promotes one opaque tag.
 `--add` sends strong matches through the same project transaction as `add`, one transaction per kind, and stops at the first refusal.
 
