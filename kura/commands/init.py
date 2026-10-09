@@ -210,6 +210,14 @@ def _render_plan(
             f"{_counted(delete_count, 'link')} to remove, "
             f"{_counted(len(combined.current), 'link')} already current"
         )
+        # Creates and relinks stay counted, but a removal is listed even without
+        # --verbose: init's summary is the only record of which links it unlinked.
+        if not verbose:
+            for action in native_actions:
+                if action.operation == "delete":
+                    profile = harnesses.get(action.harness)
+                    subject = f"'{action.skill}'" if action.skill else "native skill root"
+                    print(f"  remove: {profile.display_name} {subject} at {ui.path(action.path)}")
         if combined.missing:
             missing_names = sorted({row.name for row in combined.missing})
             verb = "is" if len(missing_names) == 1 else "are"
