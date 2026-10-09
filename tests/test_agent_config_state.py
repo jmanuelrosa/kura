@@ -159,6 +159,19 @@ def test_manifest_rejects_unsafe_agent_and_bundle_names():
             state.parse(data)
 
 
+@pytest.mark.parametrize("version", [1, 2])
+@pytest.mark.parametrize("name", ["../outside", "a/b", ".."])
+def test_manifest_rejects_unsafe_skill_names(version, name):
+    data = {"schemaVersion": version, "harnesses": ["claude"], "skills": [name]}
+    with pytest.raises(state.Malformed, match="unsafe name"):
+        state.parse(data)
+
+
+def test_legacy_migration_rejects_unsafe_skill_names():
+    with pytest.raises(state.Malformed, match="unsafe name"):
+        state.migrated({("skill", "../../../.claude/skills/commit"): "direct"}, ("claude",))
+
+
 def test_manifest_upgrade_writes_version_two_for_new_intent():
     original = state.parse(v1_manifest())
     upgraded = state.upgrade(original, agents=("z", "architect", "z"), bundles=("backend",))
