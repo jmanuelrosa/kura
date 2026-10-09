@@ -21,7 +21,7 @@ jobs:
       # PyYAML is a test dependency and the oracle for the frontmatter scanner's
       # contract. The package itself imports nothing outside the standard library,
       # which test_packaging asserts.
-      - run: python -m pip install pytest pyyaml
+      - run: python -m pip install --require-hashes -r requirements-test.txt
 
       - run: python -m pytest -q tests
 
