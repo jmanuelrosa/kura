@@ -108,6 +108,9 @@ def classify(skill, checkout, destination):
     source = upstream.subtree(checkout, skill.upstream_path)
     if not source.is_dir():
         return FAILED, f"upstream_path '{skill.upstream_path}' is not in the tarball"
+    links = upstream.symlinks(source)
+    if links:
+        return FAILED, f"upstream ships symlinks, refused: {', '.join(map(str, links))}"
     if not destination.is_dir():
         return ABSENT, None
     # One note for both outcomes: they are the two most common rows, and building the

@@ -115,6 +115,19 @@ def _relevant(directory):
     return found
 
 
+def symlinks(directory):
+    """Every symlink under directory, relative, outside the excluded subtrees.
+
+    The extraction filter judged each link against the whole checkout, but copy_tree
+    lands the subtree deeper in the catalog, where the same relative target can
+    resolve into the user's home. Skills are Markdown trees with no use for a link,
+    so the caller refuses any rather than reasoning about where one points.
+    """
+    return sorted(
+        relative for relative in _relevant(directory) if (directory / relative).is_symlink()
+    )
+
+
 def differs(source, destination):
     """True if the two trees differ in structure or file contents.
 
