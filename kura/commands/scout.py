@@ -23,9 +23,11 @@ offering to install what every project already loads.
 """
 
 import json
+import math
 import sys
 import textwrap
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, replace
 from types import SimpleNamespace
 
 from .. import catalog as cat
@@ -42,6 +44,12 @@ SHORTLIST_CAP = 12
 # report wants the gist, not the contract.
 DESCRIPTION_CAP = 220
 WRAP = 100
+
+# How much of an artifact's observable tags a project must match before a persona or
+# topic hit alone makes it a strong match. `frontend` is carried by every front-end
+# skill, generic review and refactoring ones included; a tag naming the technology
+# itself is exempt, because the tech gate has already established relevance.
+MIN_FIT = 0.5
 
 STRONG = "Strong match"
 CONSIDER = "Worth considering"
@@ -62,21 +70,25 @@ class Match:
     description: str
     # The evidence string for the tag that put it here, printed verbatim.
     why: str
-    # How many of the project's tags it carries. Ranks within a tier, never across.
-    score: int
+    # How specifically it matches the project. Ranks within a tier, never across.
+    score: float
+    # What installing it also brings that this project does not have yet, as
+    # (kind, name) pairs. For a bundle this is where its seat agent shows up.
+    adds: tuple = ()
 
 
 def describe(art):
     """A one-line gist of what an artifact does, or "".
 
-    Three sources because the three types keep their prose in three places: a
-    skill's SKILL.md frontmatter, an agent's own frontmatter, a plugin's manifest.
-    A bundle keeps none of its own, so it has no gist.
+    Four sources because the types keep their prose in different places: a skill's
+    SKILL.md frontmatter, an agent's own frontmatter, a bundle's or a plugin's
+    manifest.
     """
-    if art.source is None or art.type == cat.BUNDLE:
+    if art.source is None:
         return ""
-    if art.type == cat.PLUGIN:
-        manifest = art.source / cat.PLUGIN_MANIFEST
+    if art.type in (cat.BUNDLE, cat.PLUGIN):
+        marker = cat.BUNDLE_MARKER if art.type == cat.BUNDLE else cat.PLUGIN_MANIFEST
+        manifest = art.source / marker
         try:
             data = json.loads(manifest.read_text(errors="replace"))
         except (OSError, ValueError):
@@ -142,12 +154,23 @@ def available(catalog, effective, configured, machine=None, catalog_root=None, h
     return candidates, already
 
 
-def reason(matched, evidence, focus):
+def specificity(arts):
+    """{tag: weight}, higher the fewer artifacts carry the tag. Pure.
+
+    Inverse document frequency over the catalogue: sharing `astro` with a project
+    says far more than sharing `frontend`, which a fifth of the catalogue carries.
+    Derived from the registries on every run, so retagging needs no edit here.
+    """
+    counts = Counter(tag for art in arts for tag in set(art.groups))
+    return {tag: math.log(1 + len(arts) / count) for tag, count in counts.items()}
+
+
+def reason(matched, evidence, focus, weights=None):
     """Which of the matched tags explains the recommendation.
 
     The focus first, when it is one of them, because it is what the reader asked
-    about. Then the most specific tag, which is the one naming a technology. Only
-    then alphabetical, so the fallback is at least stable.
+    about. Then a tag naming a technology, then the rarest, then alphabetical, so
+    the fallback is at least stable.
 
     Without this the reason is whichever tag happens to sort first, and the `qa`
     seat matching a project with no tests on `testing` justified itself with
@@ -155,18 +178,26 @@ def reason(matched, evidence, focus):
     """
     if focus and focus in matched:
         return evidence[focus]
-    for tag in matched:
-        if tag in fingerprint.TECH_TAGS:
-            return evidence[tag]
-    return evidence[matched[0]]
+    weights = weights or {}
+    best = min(
+        matched,
+        key=lambda tag: (tag not in fingerprint.TECH_TAGS, -weights.get(tag, 0), tag),
+    )
+    return evidence[best]
 
 
-def rank(candidates, direct, indirect, focus):
+def rank(candidates, direct, indirect, focus, weights=None):
     """Split candidates into the two tiers. Pure.
 
     A tag with direct project evidence makes a strong match; a merely implied one
-    makes it worth considering. Direct wins outright, so an artifact carrying both
-    never lands in the weaker tier.
+    makes it worth considering. A direct hit on a persona or topic tag alone is
+    strong only when the artifact fits the project (MIN_FIT); otherwise a generic
+    review skill tagged `frontend` would be installed by `--add` in every React app.
+
+    Within a tier, `weights` (see specificity) orders the matches: the sum of the
+    matched tags' weights, scaled by how much of the artifact's observable tags the
+    project matched, so an artifact about exactly this project beats one that merely
+    touches it.
 
     `focus` only orders here: it sorts its own matches to the front of whichever
     tier they earned. The promotion happens one level up, in run(), which enters the
@@ -179,6 +210,8 @@ def rank(candidates, direct, indirect, focus):
     # subtraction below. Otherwise `--focus observability` would quietly match
     # nothing at all, which reads as "no such tag" rather than "not by default".
     broad = fingerprint.BROAD_TAGS - {focus} if focus else fingerprint.BROAD_TAGS
+    observable = fingerprint.OBSERVABLE_TAGS | ({focus} if focus else set())
+    weights = weights or {}
     strong, consider = [], []
     for art in candidates:
         tags = set(art.groups) - broad
@@ -189,20 +222,23 @@ def rank(candidates, direct, indirect, focus):
             continue
         hits = sorted(tags & set(direct))
         soft = sorted(tags & set(indirect))
-        if hits:
-            bucket, matched, evidence = strong, hits, direct
-        elif soft:
-            bucket, matched, evidence = consider, soft, indirect
-        else:
+        if not hits and not soft:
             continue
+        matched = hits + soft
+        fit = len(matched) / len(tags & (observable | set(matched)))
+        specific = focus in hits or bool(set(hits) & fingerprint.TECH_TAGS) or fit >= MIN_FIT
+        if hits and specific:
+            bucket, why = strong, reason(hits, direct, focus, weights)
+        else:
+            bucket, why = consider, reason(matched, {**indirect, **direct}, focus, weights)
         bucket.append(
             Match(
                 name=art.name,
                 kind=art.type,
                 groups=tuple(art.groups),
                 description=describe(art),
-                why=reason(matched, evidence, focus),
-                score=len(matched),
+                why=why,
+                score=fit * sum(weights.get(tag, 1.0) for tag in matched),
             )
         )
 
@@ -210,6 +246,55 @@ def rank(candidates, direct, indirect, focus):
         return (0 if focus and focus in match.groups else 1, -match.score, match.kind, match.name)
 
     return sorted(strong, key=order), sorted(consider, key=order)
+
+
+def closure(catalog, art):
+    """(kind, name) of everything installing `art` brings with it, itself excluded.
+
+    The same resolution `add` performs, so what the report says comes along is what
+    actually would.
+    """
+    if art.type == cat.BUNDLE:
+        resolution = cat.bundle_resolution(catalog, [art.name])
+    elif art.type == cat.AGENT:
+        resolution = cat.bundle_resolution(catalog, (), (), [art.name])
+    else:
+        resolution = cat.bundle_resolution(catalog, (), [art.name])
+    brought = {(cat.SKILL, name) for name in resolution.skills}
+    brought |= {(cat.AGENT, name) for name in resolution.agents}
+    brought.discard((art.type, art.name))
+    return brought
+
+
+def fold(strong, consider, brings):
+    """Drop matches another offered match already brings, and record what each adds.
+
+    `brings` is {(kind, name): set of (kind, name)}. A match is folded into one in
+    its own or a stronger tier, never a weaker one: a strong skill stays even when
+    only a guessed bundle would bring it, or `--add` would lose it. Two matches that
+    bring each other both stay, since folding either way would be arbitrary. Pure.
+    """
+    def key(match):
+        return (match.kind, match.name)
+
+    def adds(match):
+        return tuple(sorted(brings.get(key(match), ()), key=lambda pair: (pair[0] != cat.AGENT, pair)))
+
+    folded, above = [], []
+    for tier in (strong, consider):
+        bringers = above + tier
+        kept = [
+            replace(match, adds=adds(match))
+            for match in tier
+            if not any(
+                key(match) in brings.get(key(other), ())
+                and key(other) not in brings.get(key(match), ())
+                for other in bringers
+            )
+        ]
+        folded.append(kept)
+        above = bringers
+    return folded[0], folded[1]
 
 
 def shortlist(strong, consider, cap=SHORTLIST_CAP):
@@ -264,6 +349,12 @@ def _row(match, show_kind):
     return " ".join(parts)
 
 
+def _aside(label, text):
+    gist = textwrap.shorten(text, DESCRIPTION_CAP, placeholder=" …")
+    filled = textwrap.fill(gist, width=WRAP, initial_indent=label, subsequent_indent=" " * len(label))
+    return ui.render("note", filled.replace("\n", "\n    "), indent=4)
+
+
 def render(strong, consider, already, focus, project, emit=print):
     """Print the report and return the artifacts it offered, in display order.
 
@@ -292,19 +383,10 @@ def render(strong, consider, already, focus, project, emit=print):
             emit(_row(match, show_kind))
             emit(ui.render("note", f"Why:  {match.why}", indent=4))
             if match.description:
-                gist = textwrap.shorten(match.description, DESCRIPTION_CAP, placeholder=" …")
-                emit(
-                    ui.render(
-                        "note",
-                        textwrap.fill(
-                            gist,
-                            width=WRAP,
-                            initial_indent="What: ",
-                            subsequent_indent="      ",
-                        ).replace("\n", "\n    "),
-                        indent=4,
-                    )
-                )
+                emit(_aside("What: ", match.description))
+            if match.adds:
+                names = [name if kind != cat.AGENT else f"{name} (agent)" for kind, name in match.adds]
+                emit(_aside("Adds: ", ", ".join(names)))
         emit("")
 
     if already:
@@ -368,10 +450,11 @@ def run(args):
         catalog = common.loaded_catalog(catalog_root)
         effective = scope.global_set(catalog)
         kinds = TYPE_ORDER if args.type is None else (args.type,)
+        configured = configured_names(catalog, manifest)
         candidates, already = available(
             catalog,
             effective,
-            configured_names(catalog, manifest),
+            configured,
             machine,
             catalog_root,
             paths.home(),
@@ -393,7 +476,20 @@ def run(args):
             direct.setdefault(args.focus, f"requested focus '{args.focus}'")
             indirect.pop(args.focus, None)
 
-        strong, consider = shortlist(*rank(candidates, direct, indirect, args.focus))
+        def wanted(pair):
+            art = cat.get(catalog, *pair)
+            if pair[1] in configured.get(pair[0], ()):
+                return False
+            return art is None or not scope.belongs_global(art, effective)
+
+        weights = specificity([art for kind in TYPE_ORDER for art in cat.visible(catalog, kind)])
+        brings = {
+            (art.type, art.name): {pair for pair in closure(catalog, art) if wanted(pair)}
+            for art in candidates
+        }
+        strong, consider = shortlist(
+            *fold(*rank(candidates, direct, indirect, args.focus, weights), brings)
+        )
         render(strong, consider, already, args.focus, project)
         if not args.add or not strong:
             return errors.OK

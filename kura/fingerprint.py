@@ -94,19 +94,24 @@ TECH_TAGS = frozenset(
 # because both are facts about the project rather than guesses. Expo is React Native,
 # Fastify is Node: putting those in IMPLIED_TAGS instead looked tidier and was wrong,
 # since a gate tag reached only by implication can never satisfy the gate.
+#
+# The same goes for the persona a framework only exists to serve. A DOM renderer is
+# front-end and an HTTP server framework is back-end, so those name the seat directly;
+# without it the seat bundles could only ever be guesses. Bare `react` does not, since
+# React Native projects declare it too.
 DEP_TAGS = {
     "react": ("react",),
-    "react-dom": ("react",),
+    "react-dom": ("react", "frontend"),
     "react-native": ("react-native", "mobile"),
     "react-router": ("react-router",),
     "react-router-dom": ("react-router",),
     "expo": ("expo", "mobile"),
-    "astro": ("astro",),
+    "astro": ("astro", "frontend"),
     "tailwindcss": ("tailwind",),
     "typescript": ("typescript",),
     "graphql": ("graphql",),
-    "fastify": ("fastify", "node"),
-    "hono": ("hono", "node"),
+    "fastify": ("fastify", "node", "backend"),
+    "hono": ("hono", "node", "backend"),
     "prisma": ("prisma", "database"),
     "playwright": ("playwright", "testing"),
     "vitest": ("testing",),
@@ -117,7 +122,7 @@ DEP_TAGS = {
 
 # Scoped families, matched by prefix so a new member of one needs no entry.
 DEP_PREFIX_TAGS = {
-    "@nestjs/": ("nestjs", "node"),
+    "@nestjs/": ("nestjs", "node", "backend"),
     "@apollo/": ("apollo", "graphql"),
     "@prisma/": ("prisma", "database"),
     "@playwright/": ("playwright", "testing"),
@@ -140,11 +145,7 @@ IMPLIED_TAGS = {
     "react": ("frontend", "ui"),
     "react-router": ("frontend",),
     "tanstack": ("frontend",),
-    "astro": ("frontend",),
     "tailwind": ("frontend", "designer", "design", "ui"),
-    "nestjs": ("backend",),
-    "fastify": ("backend",),
-    "hono": ("backend",),
     "graphql": ("backend", "frontend"),
     "database": ("backend",),
     "electron": ("frontend", "ui"),
@@ -183,6 +184,11 @@ INTENT_KEYWORDS = {
     "adr": ("documentation",),
 }
 
+# Whole words only: as a substring `adr` matched `loadRoutes`.
+INTENT_PATTERNS = {
+    keyword: re.compile(rf"\b{re.escape(keyword)}\b") for keyword in INTENT_KEYWORDS
+}
+
 INTENT_FILES = ("CLAUDE.md", "README.md")
 
 SWIFT_FILES = ("Package.swift", "Podfile")
@@ -218,6 +224,26 @@ MANIFEST = "package.json"
 # npm ranges are noise in an evidence string; the version is there to be recognised,
 # not to be resolved.
 RANGE_CHARS = "^~>=< "
+
+
+# Every tag some probe here can emit, directly or as a guess. A registry tag outside
+# this set is one scout can never observe, so it is no evidence against an artifact
+# either: rank() measures how well an artifact fits a project over these alone.
+OBSERVABLE_TAGS = frozenset(
+    tag
+    for group in (
+        *DEP_TAGS.values(),
+        *DEP_PREFIX_TAGS.values(),
+        *IMPLIED_TAGS.values(),
+        *INTENT_KEYWORDS.values(),
+        SWIFT_TAGS,
+        TAURI_TAGS,
+        MACOS_TAGS,
+        AGNOSTIC_TAGS,
+        GAP_TAGS,
+    )
+    for tag in group
+)
 
 
 def _read_json(path):
@@ -330,7 +356,7 @@ def read(project):
         except OSError:
             continue
         for keyword, tags in INTENT_KEYWORDS.items():
-            if keyword in text:
+            if INTENT_PATTERNS[keyword].search(text):
                 note(tags, f"{filename} mentions '{keyword}'")
 
     return direct
