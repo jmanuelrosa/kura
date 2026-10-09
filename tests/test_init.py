@@ -6,7 +6,7 @@ import pytest
 from kit_helpers import register
 
 from kura import catalog as cat
-from kura import config, errors, harnesses, state
+from kura import config, errors, harnesses, state, ui
 from kura.commands import init as init_command
 
 
@@ -390,3 +390,29 @@ def test_a_traversing_manifest_skill_cannot_unlink_outside_the_project(setup):
     assert init_command.run(arguments(harnesses=("claude",))) != errors.OK
 
     assert outside.is_symlink()
+
+
+def test_the_default_summary_names_every_link_it_removes(setup, capsys):
+    home, project, catalog = setup
+    skill(catalog, "review")
+    register(catalog, cat.SKILL, "review")
+    state.path_for(project).write_text(
+        json.dumps(
+            {
+                "schemaVersion": state.V2_SCHEMA_VERSION,
+                "harnesses": ["claude", "pi"],
+                "skills": ["review"],
+                "agents": [],
+                "bundles": [],
+            }
+        )
+    )
+    pi_link = harnesses.project_skill_root(project, "pi") / "review"
+    pi_link.parent.mkdir(parents=True)
+    pi_link.symlink_to(catalog / "skills" / "review")
+
+    assert init_command.run(arguments(harnesses=("claude",), dry_run=True)) == errors.OK
+
+    output = capsys.readouterr().out
+    assert "1 link to remove" in output
+    assert f"remove: Pi 'review' at {ui.path(pi_link)}" in output
