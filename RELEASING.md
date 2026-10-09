@@ -6,7 +6,8 @@ Open **Actions > Release > Run workflow**, select the repository's default branc
 Only repository admins may proceed: the workflow checks both the original actor and the actor requesting a re-run before the job with write permission starts.
 GitHub may show the Run workflow button to other users with write access, but their runs fail the admin check without creating a commit, tag, or release.
 
-The workflow updates `kura/__version__.py` in its checkout, runs the tests, verifies two identical builds, and smoke-tests the isolated executable with and without a catalog.
+The workflow runs the tests in a separate job without write permission, installing the hash-pinned `requirements-test.txt`, so no third-party package runs where the asset is built.
+The release job then updates `kura/__version__.py` in its checkout, verifies two identical builds, smoke-tests the isolated executable with and without a catalog, and records a build provenance attestation for `kura`.
 After the checks pass, it commits only the version file if it changed, pushes the version tag, and publishes `kura` and `kura.sha256` with generated notes in the same run.
 The version commit belongs only to the release tag: the default branch is not pushed or changed, so its PR and signature protections remain intact.
 No additional secret is needed; the workflow uses `GITHUB_TOKEN`.
@@ -17,6 +18,7 @@ If publication fails after the tag is pushed, recover by publishing that existin
 The workflow must be merged into the default branch before the manual trigger is available.
 Only committed changes from the selected default-branch revision are released; local changes are not included.
 Update the installer's pinned tag and checksum together after publication.
+To bump the test dependencies, edit `requirements-test.in` and run `make requirements`.
 
 ## Local verification and tag-triggered releases
 

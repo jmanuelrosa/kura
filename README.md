@@ -11,6 +11,7 @@ Each release ships a self-contained `kura` executable and `kura.sha256` checksum
 
 ```sh
 shasum -a 256 -c kura.sha256
+gh attestation verify kura --repo jmanuelrosa/kura
 chmod +x kura
 mv kura ~/.local/bin/
 ```

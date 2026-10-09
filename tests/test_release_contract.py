@@ -75,6 +75,22 @@ def test_releasing_smoke_test_and_wording_use_skills():
     assert "The first must print the skill listing." in releasing
 
 
+def test_the_release_job_runs_no_third_party_python():
+    for step in RELEASE_WORKFLOW["jobs"]["release"]["steps"]:
+        assert "pip install" not in step.get("run", "")
+        assert "pytest" not in step.get("run", "")
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [".github/workflows/release.yml", ".github/workflows/test.yml"],
+)
+def test_workflows_install_test_dependencies_by_hash(relative):
+    workflow = (TOOL / relative).read_text()
+    assert "pip install --require-hashes -r requirements-test.txt" in workflow
+    assert "pip install pytest" not in workflow
+
+
 def _release_step(name, job="release"):
     return next(step for step in RELEASE_WORKFLOW["jobs"][job]["steps"] if step.get("name") == name)
 
@@ -104,15 +120,21 @@ def test_manual_release_authorization_precedes_write_permissions():
     assert version["type"] == "string"
     assert RELEASE_WORKFLOW["on"]["push"]["tags"] == ["v*"]
     assert RELEASE_WORKFLOW["permissions"] == {"contents": "read"}
-    assert RELEASE_WORKFLOW["jobs"]["release"]["needs"] == "authorize"
-    assert RELEASE_WORKFLOW["jobs"]["release"]["permissions"] == {"contents": "write"}
+    assert RELEASE_WORKFLOW["jobs"]["test"]["needs"] == "authorize"
+    assert "permissions" not in RELEASE_WORKFLOW["jobs"]["test"]
+    assert RELEASE_WORKFLOW["jobs"]["release"]["needs"] == ["authorize", "test"]
+    assert RELEASE_WORKFLOW["jobs"]["release"]["permissions"] == {
+        "contents": "write",
+        "id-token": "write",
+        "attestations": "write",
+    }
     assert RELEASE_WORKFLOW["concurrency"]["cancel-in-progress"] == "false"
     assert "if" not in _release_step("Authorize release", "authorize")
     assert _release_step("Prepare release version")["if"] == "github.event_name == 'workflow_dispatch'"
     assert _release_step("Create release commit and tag")["if"] == "github.event_name == 'workflow_dispatch'"
     steps = RELEASE_WORKFLOW["jobs"]["release"]["steps"]
     names = [step.get("name") for step in steps]
-    for check in ("Run tests", "Build release assets", "Smoke-test release asset"):
+    for check in ("Build release assets", "Smoke-test release asset", "Attest build provenance"):
         assert names.index("Create release commit and tag") > names.index(check)
     assert names.index("Publish GitHub release") > names.index("Create release commit and tag")
     assert "version" in (TOOL / "RELEASING.md").read_text()
