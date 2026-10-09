@@ -504,6 +504,44 @@ def test_e8_a_missing_upstream_path_fails_without_deleting(at, capsys):
     assert "not in the tarball" in capsys.readouterr().out
 
 
+def fetcher_with_symlink(files, link, target):
+    def fetcher(repo, branch, destination):
+        write_tree(destination, files)
+        (destination / link).symlink_to(target)
+        return destination
+
+    return fetcher
+
+
+@pytest.mark.parametrize("target", ["../../../../../.ssh/id_ed25519", "SKILL.md"])
+def test_an_upstream_symlink_is_refused_without_touching_the_skill(at, upstream_files, target, capsys):
+    """Extraction judged the link against the whole checkout, but the copy lands it
+    deeper, where the same relative target can resolve into the user's home.
+    """
+    fetcher = fetcher_with_symlink(upstream_files, "skills/alpha/peek", target)
+    code = pull.run(_Args("update"), fetcher=fetcher)
+    assert code == errors.FETCH_FAILED
+    assert (at / "skills" / "alpha" / "SKILL.md").read_text() == "old alpha"
+    assert not (at / "skills" / "alpha" / "peek").is_symlink()
+    assert "symlink" in capsys.readouterr().out
+
+
+def test_an_upstream_symlinked_directory_is_refused(at, upstream_files, tmp_path):
+    fetcher = fetcher_with_symlink(upstream_files, "skills/alpha/nested", tmp_path)
+    assert pull.run(_Args("update"), fetcher=fetcher) == errors.FETCH_FAILED
+    assert not (at / "skills" / "alpha" / "nested").exists()
+
+
+def test_a_symlink_in_an_excluded_directory_is_ignored(at, upstream_files):
+    fetcher = fetcher_with_symlink(
+        {**upstream_files, "skills/alpha/node_modules/x": "x"},
+        "skills/alpha/node_modules/link",
+        "x",
+    )
+    assert pull.run(_Args("update"), fetcher=fetcher) == errors.OK
+    assert (at / "skills" / "alpha" / "SKILL.md").read_text() == "new alpha"
+
+
 # --- E10: skills only -------------------------------------------------------
 
 

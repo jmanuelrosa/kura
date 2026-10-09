@@ -131,7 +131,7 @@ def parse(data):
         selected = harnesses.validate_ids(raw_harnesses, "harnesses")
     except ValueError as exc:
         raise Malformed(str(exc)) from exc
-    skills = _sorted_unique_strings(data.get("skills"), "skills")
+    skills = _artifact_names(data.get("skills"), "skills")
     if version == SCHEMA_VERSION:
         unexpected = sorted(set(data) & {"agents", "bundles"})
         if unexpected:
@@ -244,7 +244,9 @@ def migrated(rows, harness_ids):
         }
         if entries:
             legacy[collection] = dict(sorted(entries.items()))
-    return Manifest(tuple(sorted(harness_ids)), tuple(direct), legacy)
+    return Manifest(
+        tuple(sorted(harness_ids)), _artifact_names(direct, "skills"), legacy
+    )
 
 
 def merge(root_manifest, migrated_manifest):

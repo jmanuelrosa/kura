@@ -364,3 +364,29 @@ def test_interactive_eof_refuses_without_writes(setup, monkeypatch, capsys):
     assert not state.path_for(project).exists()
     assert not (project / "AGENTS.md").exists()
     assert not (project / "CLAUDE.md").exists()
+
+
+def test_a_traversing_manifest_skill_cannot_unlink_outside_the_project(setup):
+    home, project, catalog = setup
+    skill(catalog, "commit")
+    register(catalog, cat.SKILL, "commit")
+    outside = home / ".claude" / "skills" / "commit"
+    outside.parent.mkdir(parents=True)
+    outside.symlink_to(catalog / "skills" / "commit")
+    escape = Path("..", "..", "..", home.name, ".claude", "skills", "commit")
+    state.path_for(project).write_text(
+        json.dumps(
+            {
+                "schemaVersion": state.V2_SCHEMA_VERSION,
+                "harnesses": ["claude", "pi"],
+                "skills": [str(escape)],
+                "agents": [],
+                "bundles": [],
+            }
+        )
+    )
+    harnesses.project_skill_root(project, "pi").mkdir(parents=True)
+
+    assert init_command.run(arguments(harnesses=("claude",))) != errors.OK
+
+    assert outside.is_symlink()
