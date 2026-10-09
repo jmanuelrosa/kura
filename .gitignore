@@ -1,1 +1,9 @@
 **/__pycache__
+/dist
+/.agents
+/.pi
+/.claude/skills
+/.claude/agents
+/.claude/agent-memory
+/.claude/state
+/.claude/.cc-writes
