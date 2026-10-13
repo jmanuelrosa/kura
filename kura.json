@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 2,
+  "harnesses": [
+    "claude",
+    "pi"
+  ],
+  "skills": [
+    "code-review-and-quality",
+    "code-simplification",
+    "idea-refine",
+    "incremental-implementation",
+    "knip",
+    "owasp",
+    "performance-optimization",
+    "ponytail",
+    "spec-driven-development",
+    "test-driven-development",
+    "unslop"
+  ],
+  "agents": [],
+  "bundles": [
+    "backend",
+    "dx",
+    "platform",
+    "qa",
+    "security"
+  ]
+}
