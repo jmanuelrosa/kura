@@ -432,6 +432,57 @@ def test_absent_skills_are_installed(at, upstream_files, capsys):
     assert "installed" in capsys.readouterr().out
 
 
+# --- Pinned commits -----------------------------------------------------------
+
+PINNED = "1be8e34187e34647bb83adc3a1323b26ae6f6abe"
+
+
+def recording_fetcher(files, refs):
+    def fetcher(repo, ref, destination):
+        refs.append(ref)
+        write_tree(destination, files)
+        return destination
+
+    return fetcher
+
+
+def pin(claude, commit):
+    path = claude / "skill-registry.json"
+    data = json.loads(path.read_text())
+    data["upstream"]["owner/one"]["commit"] = commit
+    path.write_text(json.dumps(data, indent=2) + "\n")
+
+
+def test_a_pinned_commit_is_fetched_instead_of_the_branch(at, upstream_files, capsys):
+    pin(at, PINNED)
+    refs = []
+    code = pull.run(_Args("outdated"), fetcher=recording_fetcher(upstream_files, refs))
+    assert code == errors.OK
+    assert refs == [PINNED]
+    assert f"── owner/one (main @ {PINNED[:7]}) ──" in capsys.readouterr().out
+
+
+def test_without_a_commit_the_branch_is_fetched(at, upstream_files, capsys):
+    refs = []
+    pull.run(_Args("outdated"), fetcher=recording_fetcher(upstream_files, refs))
+    assert refs == ["main"]
+    assert "── owner/one (main) ──" in capsys.readouterr().out
+
+
+def test_update_keeps_the_pinned_commit_in_the_registry(at, upstream_files, capsys):
+    pin(at, PINNED)
+    pull.run(_Args("update"), fetcher=recording_fetcher(upstream_files, []))
+    repo = json.loads((at / "skill-registry.json").read_text())["upstream"]["owner/one"]
+    assert (repo["branch"], repo["commit"]) == ("main", PINNED)
+
+
+@pytest.mark.parametrize("commit", [PINNED[:7], PINNED.upper(), "main", 7])
+def test_a_commit_that_is_not_a_full_lowercase_sha_is_refused(commit):
+    registry = {"upstream": {"owner/one": {"branch": "main", "commit": commit, "skills": []}}}
+    with pytest.raises(ValueError, match="commit must be a full 40-character lowercase SHA"):
+        list(cat.registry_entries(registry, cat.COLLECTION[cat.SKILL]))
+
+
 # --- E5: local skills -------------------------------------------------------
 
 

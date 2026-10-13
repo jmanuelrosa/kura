@@ -20,15 +20,15 @@ from pathlib import Path
 # Never carried into a skill directory: repo furniture and installed packages.
 EXCLUDE = {".git", ".github", "node_modules"}
 
-TARBALL_URL = "https://github.com/{repo}/archive/{branch}.tar.gz"
+TARBALL_URL = "https://github.com/{repo}/archive/{ref}.tar.gz"
 
 
 class FetchError(Exception):
     """Upstream could not be reached, or what came back was not a tarball."""
 
 
-def tarball_url(repo, branch):
-    return TARBALL_URL.format(repo=repo, branch=branch)
+def tarball_url(repo, ref):
+    return TARBALL_URL.format(repo=repo, ref=ref)
 
 
 def _safe_members(archive, strip):
@@ -61,13 +61,13 @@ def extract(tar_path, destination, strip=1):
     return destination
 
 
-def fetch(repo, branch, destination):
+def fetch(repo, ref, destination):
     """Download and unpack an upstream repo. The only networked function here.
 
     Tests replace this wholesale, which is why it does nothing but I/O: no
     decisions live in it that a test would then be unable to exercise.
     """
-    url = tarball_url(repo, branch)
+    url = tarball_url(repo, ref)
     handle = None
     try:
         with urllib.request.urlopen(url, timeout=60) as response:

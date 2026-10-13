@@ -130,6 +130,7 @@ A mismatch blocks installation.
 Each registry separates `upstream` (GitHub repositories whose skills can be updated) from `local` (catalog-authored artifacts without an upstream), and `local` rows need a `name`.
 `local` entries may carry descriptive groups such as `workflow` and the same global policy as upstream entries.
 The old `repos` and `local_skills` keys are rejected; rename them when migrating a catalog.
+Each upstream repository names the `branch` it tracks and may add a `commit`, a full 40-character SHA that `update` and `outdated` fetch instead of the branch tip, so nothing lands that the pin did not review.
 Skill and agent registry entries may add:
 
 - `groups`, descriptive tags for filtering, grouping, and recommendations
