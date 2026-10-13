@@ -687,6 +687,34 @@ def test_fetch_raises_fetcherror_for_an_unreachable_host(monkeypatch, tmp_path):
         upstream.fetch("owner/repo", "main", tmp_path / "out")
 
 
+def test_fetch_raises_fetcherror_for_a_gzip_stream_cut_short(monkeypatch, tmp_path):
+    """A download that ends cleanly but leaves the gzip stream unfinished raises EOFError
+    from gzip, which is not an OSError, so it once escaped as a traceback."""
+    import io
+    import tarfile
+    import urllib.request
+
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        payload = b"x" * 200_000
+        member = tarfile.TarInfo("repo-main/SKILL.md")
+        member.size = len(payload)
+        archive.addfile(member, io.BytesIO(payload))
+    whole = buffer.getvalue()
+    cut = whole[: len(whole) // 2]
+
+    class _Cut:
+        def __enter__(self):
+            return io.BytesIO(cut)
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _Cut())
+    with pytest.raises(upstream.FetchError):
+        upstream.fetch("owner/repo", "main", tmp_path / "out")
+
+
 def test_fetch_raises_fetcherror_for_a_truncated_response(monkeypatch, tmp_path):
     """A chunked response cut short raises http.client.IncompleteRead, which is an
     HTTPException and not an OSError, so it once escaped as a traceback and abandoned

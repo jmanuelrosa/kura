@@ -82,7 +82,9 @@ def fetch(repo, branch, destination):
         raise FetchError(f"could not fetch {url}: {exc}") from exc
     try:
         return extract(Path(tmp), destination)
-    except (tarfile.TarError, OSError) as exc:
+    # gzip reports a stream cut short after a clean HTTP end as EOFError, which is not
+    # an OSError, so it escaped the same way IncompleteRead did above.
+    except (tarfile.TarError, OSError, EOFError) as exc:
         raise FetchError(f"{url} is not a readable tarball: {exc}") from exc
     finally:
         os.unlink(tmp)
