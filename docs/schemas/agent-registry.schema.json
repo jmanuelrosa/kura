@@ -43,6 +43,12 @@
           "description": "Upstream ref recorded as metadata. Kura does not fetch standalone agents.",
           "examples": ["main"]
         },
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$",
+          "description": "Upstream commit recorded as metadata. Kura does not fetch standalone agents.",
+          "examples": ["1be8e34187e34647bb83adc3a1323b26ae6f6abe"]
+        },
         "agents": {
           "type": ["array", "null"],
           "items": {

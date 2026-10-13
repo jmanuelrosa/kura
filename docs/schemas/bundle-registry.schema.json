@@ -43,6 +43,12 @@
           "description": "Upstream ref recorded as metadata. Kura does not fetch bundles.",
           "examples": ["main"]
         },
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$",
+          "description": "Upstream commit recorded as metadata. Kura does not fetch bundles.",
+          "examples": ["1be8e34187e34647bb83adc3a1323b26ae6f6abe"]
+        },
         "bundles": {
           "type": ["array", "null"],
           "items": {

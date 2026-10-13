@@ -35,6 +35,9 @@ SYNCED = "synced"
 INSTALLED = "installed"
 FAILED = "failed"
 
+# git's own default abbreviation, so the header matches what `git log --oneline` shows.
+SHORT_SHA = 7
+
 # Glyph, colour and label per state. The glyph and the label share a colour, and the
 # state is read off the colour as much as the text: green means untouched, blue means
 # written, red means a sync is waiting.
@@ -141,7 +144,15 @@ def format_tally(command, results):
     return ui.render("done", f"{colors.paint('Done:', 'bold')} " + ", ".join(parts))
 
 
-def process_repo(skills, claude, branch, repo, write, fetcher, workspace):
+def repo_label(skill):
+    """The repo header's ref: the branch, and the pinned commit when one is fetched instead."""
+    if not skill.upstream_commit:
+        return skill.upstream_branch
+    short = skill.upstream_commit[:SHORT_SHA]
+    return f"{skill.upstream_branch} @ {short}" if skill.upstream_branch else short
+
+
+def process_repo(skills, claude, ref, repo, write, fetcher, workspace):
     """Fetch one repo once, then act on every skill tracked from it.
 
     One fetch per repo rather than per skill: a repo can supply many skills, and
@@ -154,7 +165,7 @@ def process_repo(skills, claude, branch, repo, write, fetcher, workspace):
     """
     checkout = workspace / repo.replace("/", "_")
     try:
-        fetcher(repo, branch, checkout)
+        fetcher(repo, ref, checkout)
     except upstream.FetchError as exc:
         # One unreachable repo must not abandon the others.
         return str(exc), [(skill, FAILED, str(exc)) for skill in skills]
@@ -239,10 +250,9 @@ def run(args, fetcher=None):
     with tempfile.TemporaryDirectory() as workspace:
         for repo in sorted(by_repo):
             skills = by_repo[repo]
-            branch = skills[0].upstream_branch
-            print(colors.paint(f"── {repo} ({branch}) ──", "cyan"))
+            print(colors.paint(f"── {repo} ({repo_label(skills[0])}) ──", "cyan"))
             fetch_error, outcome = process_repo(
-                skills, claude, branch, repo, write, fetcher, Path(workspace)
+                skills, claude, skills[0].upstream_ref, repo, write, fetcher, Path(workspace)
             )
             if fetch_error:
                 # One line for the repo rather than the same error once per skill. Not

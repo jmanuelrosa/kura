@@ -189,7 +189,8 @@ def test_registry_schemas_describe_the_catalog_shape(kind):
 
     repo = definitions["repo"]
     assert repo["additionalProperties"] is False
-    assert set(repo["properties"]) == {"branch", cat.COLLECTION[kind]}
+    assert set(repo["properties"]) == {"branch", "commit", cat.COLLECTION[kind]}
+    assert repo["properties"]["commit"]["pattern"] == f"^{cat.COMMIT_SHA.pattern}$"
     collection = repo["properties"][cat.COLLECTION[kind]]
     assert collection["type"] == ["array", "null"]
     assert collection["items"]["$ref"] == f"#/$defs/repo{kind.title()}"

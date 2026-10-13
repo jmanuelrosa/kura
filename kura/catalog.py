@@ -7,6 +7,7 @@ reads, so the rules that matter are testable on literal data.
 """
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -43,6 +44,9 @@ BUNDLE_MARKER = "bundle.json"
 # A bundle has no install policy of its own yet, so a registry row carrying one is
 # refused rather than silently ignored.
 BUNDLE_UNSUPPORTED_KEYS = ("global", "dependencies", "dependency_only")
+# GitHub resolves a short or mixed-case SHA in an archive URL too, but a pin is only
+# unambiguous at full length, and one spelling keeps two pins comparable as strings.
+COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 
 
 @dataclass(frozen=True)
@@ -59,6 +63,9 @@ class Artifact:
     upstream_repo: str = None
     upstream_path: str = None
     upstream_branch: str = None
+    # When set, the ref fetched in place of upstream_branch, which then only names
+    # the branch the pin was taken from.
+    upstream_commit: str = None
     updated_at: str = None
     # Plugins only: keys present in the manifest, so doctor can flag the traps.
     manifest_keys: tuple = field(default=())
@@ -75,6 +82,10 @@ class Artifact:
     @property
     def has_upstream(self):
         return self.upstream_repo is not None
+
+    @property
+    def upstream_ref(self):
+        return self.upstream_commit or self.upstream_branch
 
 
 @dataclass(frozen=True)
@@ -155,6 +166,11 @@ def registry_entries(registry, collection):
     for repo_key, repo in upstream.items():
         if not isinstance(repo, dict) or not isinstance(repo.get(collection) or [], list):
             raise ValueError(f"registry upstream {repo_key!r} has malformed {collection}")
+        commit = repo.get("commit")
+        if commit is not None and not (isinstance(commit, str) and COMMIT_SHA.fullmatch(commit)):
+            raise ValueError(
+                f"registry upstream {repo_key!r} commit must be a full 40-character lowercase SHA"
+            )
         for entry in repo.get(collection) or []:
             if not isinstance(entry, dict):
                 raise ValueError(f"registry upstream {repo_key!r} has a non-object entry")
@@ -292,6 +308,7 @@ def _from_registry(claude, kind):
             upstream_repo=repo_key,
             upstream_path=entry.get("upstream_path") if repo_key else None,
             upstream_branch=upstream[repo_key].get("branch") if repo_key else None,
+            upstream_commit=upstream[repo_key].get("commit") if repo_key else None,
             updated_at=entry.get("updated_at"),
             catalog_error=containment or metadata_error or mismatch,
         )
