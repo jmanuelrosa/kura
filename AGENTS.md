@@ -36,7 +36,7 @@ Start from `tests/test_<command>.py` rather than from the module.
 
 Breaking one of these is a defect even when the suite still passes.
 
-- **Stdlib-only at runtime, no exemption.** `kura/ui.py` and `kura/colors.py` exist so there is no third-party import to reach for. PyYAML is a test dependency and the oracle for the frontmatter scanner, never its implementation.
+- **Stdlib-only at runtime, no exemption.** `kura/ui.py` and `kura/colors.py` exist so there is no third-party import to reach for. They are vendored from [dotkit](https://github.com/jmanuelrosa/dotkit) and pinned in `dotkit.json`: change them there and re-vendor, since `tests/test_dotkit_vendored.py` rejects an edit made here. PyYAML is a test dependency and the oracle for the frontmatter scanner, never its implementation.
 - **The logic stays in the package.** The shim is wiring. An extensionless executable cannot be imported, so anything that grows there is code the fast tests can only reach through a subprocess.
 - **The catalog is fixed, never discovered or configured.** `paths.catalog_root` reads `~/.config/kura/catalog` and refuses if it is not a directory. It does not consult `XDG_CONFIG_HOME`, machine configuration, environment overrides, an upward search, or a marker file.
 - **The registries are the catalog.** A source nobody registered is invisible to every command; only `doctor` notes it. Discovering artifacts from the filesystem again would let a stray file become installable.
