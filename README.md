@@ -139,6 +139,10 @@ Skill and agent registry entries may add:
 - `dependency_only`, with direct-add refusal enforced for skills
 - upstream repository metadata; only skills are targets for `update` and `outdated`
 
+Any skill, agent, or bundle row, local or upstream, may set `deprecated: true` to mark the artifact as superseded.
+A deprecated artifact stays installable: `list` marks its row and carries the flag in `--json`, `add` and `sync` warn on stderr, and `doctor` notes it while it is still in project or global views.
+The flag lives on the registry row because `update` overwrites an upstream skill's files, so a marker inside them would not survive.
+
 Editor schemas describe each registry:
 
 - [skill-registry.schema.json](docs/schemas/skill-registry.schema.json) for `skill-registry.json`
@@ -412,6 +416,7 @@ It can run without a project manifest.
 It returns `DRIFT` for invalid configuration or manifests, missing desired content, unsafe collisions, missing required Pi agent paths, and incorrect native views.
 Missing executables, trust state, split instructions, and preserved legacy rows are informational notes.
 So is each catalog source with no registry entry, reported as `unregistered`: "<path> has no entry in <registry file>, so kura ignores it".
+So is each deprecated artifact still in project or global views.
 
 ### `trust`
 

@@ -1,5 +1,6 @@
 """Shared command loading, refusal, and transaction helpers."""
 
+import sys
 from pathlib import Path
 
 from .. import catalog as cat
@@ -179,6 +180,17 @@ def report_actions(actions, dry_run=False):
         profile = harnesses.get(action.harness)
         subject = f"'{action.skill}'" if action.skill else "native skill root"
         ui.ok(f"{profile.display_name}: {verbs[action.operation]} {subject} at {ui.path(action.path)}")
+
+
+def warn_deprecated(artifacts):
+    """Name each deprecated artifact, on stderr.
+
+    Stderr because sync's stdout summary is matched by provisioning, and a
+    deprecation is advice about intent rather than a change to report.
+    """
+    for art in artifacts:
+        if art is not None and art.deprecated:
+            ui.warn(f"{art.type} '{art.name}' is deprecated", stream=sys.stderr)
 
 
 def warn_global_fallbacks(plan, project=None, stream=None):

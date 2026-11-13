@@ -165,6 +165,7 @@ def test_registry_schema_declares_explicit_global_policy(kind):
         assert policy["default"] is False
         assert "global" not in entry_schema.get("required", [])
     assert definitions["groups"]["items"]["not"]["const"] == "global"
+    assert definitions["deprecated"]["type"] == "boolean"
 
     fixture = json.loads((CATALOG / cat.REGISTRY_FILE[kind]).read_text())
     for _, entry, _ in cat.registry_entries(fixture, cat.COLLECTION[kind]):
@@ -196,7 +197,7 @@ def test_registry_schemas_describe_the_catalog_shape(kind):
     assert collection["items"]["$ref"] == f"#/$defs/repo{kind.title()}"
     assert ("branch" in repo.get("required", [])) == (kind == cat.SKILL)
 
-    metadata = {"name", "groups", "note", "updated_at"}
+    metadata = {"name", "groups", "note", "updated_at", "deprecated"}
     if kind != cat.BUNDLE:
         metadata.update(cat.BUNDLE_UNSUPPORTED_KEYS)
     for entry_kind in (f"local{kind.title()}", f"repo{kind.title()}"):
@@ -206,6 +207,7 @@ def test_registry_schemas_describe_the_catalog_shape(kind):
         assert entry["additionalProperties"] is False
         assert entry["properties"]["name"]["$ref"] == f"#/$defs/{kind}Name"
         assert entry["properties"]["groups"]["$ref"] == "#/$defs/groups"
+        assert entry["properties"]["deprecated"]["$ref"] == "#/$defs/deprecated"
     assert definitions["groups"]["items"]["not"]["const"] == "global"
     assert definitions[f"local{kind.title()}"]["required"] == ["name"]
     assert schema_path.name in (TOOL / "README.md").read_text()
