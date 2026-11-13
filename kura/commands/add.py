@@ -81,6 +81,7 @@ def _project(args, machine, catalog_root, catalog, names, elsewhere, project, ma
         ui.ok(f"Added '{name}' to {ui.path(state.path_for(project))}")
     if elsewhere:
         ui.note(f"The global half of '{args.group}' is untouched: {', '.join(elsewhere)}")
+    common.warn_deprecated(cat.get(catalog, cat.SKILL, name) for name in sorted(names))
     ui.done(f"{len(additions)} skill changes, {plan.changes} link changes")
     if plan.missing:
         for row in plan.missing:
@@ -115,6 +116,7 @@ def _global(args, machine, catalog_root, catalog, names, elsewhere):
     if elsewhere:
         ui.note(f"The project half of '{args.group}' is untouched: {', '.join(elsewhere)}")
     ui.note("This is a temporary global addition. The next `kura sync` restores registry policy.")
+    common.warn_deprecated(cat.get(catalog, cat.SKILL, name) for name in sorted(names))
     ui.done(f"{len(names)} skills selected, {plan.changes} links created")
     return errors.OK
 
@@ -214,6 +216,7 @@ def _project_active(args, machine, catalog_root, catalog, project, manifest):
     common.warn_global_fallbacks(plan)
     for name in sorted(additions):
         ui.ok(f"Added '{name}' to {ui.path(state.path_for(project))}")
+    common.warn_deprecated(cat.get(catalog, kind, name) for name in sorted(names))
     ui.done(f"{len(additions)} {noun} changes, {plan.changes} link changes")
     return errors.DRIFT if plan.missing else errors.OK
 

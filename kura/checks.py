@@ -89,6 +89,20 @@ def unregistered_notes(sources):
     ]
 
 
+def deprecation_notes(artifacts, where):
+    return [
+        Finding(
+            "deprecated",
+            NOTE,
+            f"{art.type} '{art.name}'",
+            f"deprecated, still in {where}",
+            art.type,
+        )
+        for art in artifacts
+        if art.deprecated
+    ]
+
+
 def _missing_finding(row):
     return Finding(
         "missing-intent",

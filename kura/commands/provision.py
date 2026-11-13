@@ -30,6 +30,11 @@ def run(args):
         if not args.dry_run:
             common.apply_plan(plan)
         common.report_actions(plan.ordered_actions(), dry_run=args.dry_run)
+        common.warn_deprecated(
+            cat.get(catalog, kind, name)
+            for kind, names in ((cat.SKILL, plan.logical_skills), (cat.AGENT, plan.logical_agents))
+            for name in sorted(names)
+        )
         counted = (
             f"{len(plan.logical_agents)} global agents"
             if args.type == cat.AGENT

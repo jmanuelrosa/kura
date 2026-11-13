@@ -26,6 +26,7 @@ ORDER = {
     "split-instructions": 7,
     "legacy-state": 8,
     "pi-agent-discovery": 9,
+    "deprecated": 10,
 }
 
 
@@ -95,8 +96,17 @@ def _views(machine, root, catalog, home, project, manifest, selection, findings)
     if root is None:
         return
     if machine is not None:
-        global_plan = views.global_plan(catalog, root, home, machine.global_harnesses, machine_config=machine)
-        findings.extend(checks.view_plan(views.narrow(global_plan, selection), "global views"))
+        global_plan = views.narrow(
+            views.global_plan(catalog, root, home, machine.global_harnesses, machine_config=machine),
+            selection,
+        )
+        findings.extend(checks.view_plan(global_plan, "global views"))
+        global_artifacts = [
+            cat.get(catalog, kind, name)
+            for kind, names in ((cat.SKILL, global_plan.logical_skills), (cat.AGENT, global_plan.logical_agents))
+            for name in sorted(names)
+        ]
+        findings.extend(checks.deprecation_notes(filter(None, global_artifacts), "global views"))
     if manifest is None:
         return
     plan = views.project_plan(
@@ -110,6 +120,19 @@ def _views(machine, root, catalog, home, project, manifest, selection, findings)
         machine_config=machine,
     )
     findings.extend(checks.view_plan(views.narrow(plan, selection), "project views"))
+    skill_map, agent_map = views.project_sources(catalog, manifest)
+    bundle_map = cat.bundles(catalog)
+    declared_bundles = [bundle_map[name] for name in manifest.bundles if name in bundle_map]
+    findings.extend(
+        finding
+        for finding in checks.deprecation_notes(
+            (*sorted(skill_map.values(), key=lambda art: art.name),
+             *sorted(agent_map.values(), key=lambda art: art.name),
+             *declared_bundles),
+            "project views",
+        )
+        if _in_selection(finding, selection)
+    )
 
 
 def _notes(home, project, manifest, selection, findings):

@@ -97,6 +97,8 @@ The project closure begins with the direct skill, agent, and bundle names in `ku
 The global closure begins with registered skills and standalone agents declaring `global: true`, and includes skill dependencies.
 Dependencies are never written to the project manifest.
 
+Any registry row may set `deprecated: true`, which is advisory and never install policy; [ADR 0008](docs/adr/0008-deprecation-lives-on-the-registry-row.md) records why.
+
 `update` and `outdated` act only on skills whose registry entry supplies an upstream source.
 A `local` skill is therefore visible to `list` and installable without becoming an update target.
 
@@ -249,7 +251,7 @@ Skill and bundle listings filter by exact registry tag with `--group TAG` and gr
 Bare `doctor` orders actionable drift before informational notes across skill, agent, and bundle behavior.
 `doctor --type` narrows its plans and typed catalog findings to that kind, while machine, project, catalog-wide, instruction, executable, trust, and legacy findings carry no kind and are always shown.
 Invalid machine configuration, invalid manifests, missing content, dependency failures, missing required Pi agent paths, collisions, and incorrect native views return `DRIFT`.
-Missing executables, trust not granted, split instructions, the need to enable a Markdown-compatible Pi subagent extension, catalog sources with no registry entry, and preserved legacy state are notes.
+Missing executables, trust not granted, split instructions, the need to enable a Markdown-compatible Pi subagent extension, catalog sources with no registry entry, deprecated artifacts still in use, and preserved legacy state are notes.
 It can run without a project manifest and still checks the fixed catalog and global state.
 
 ## Trust adapters

@@ -124,10 +124,10 @@ def _agent_rows(catalog, catalog_root, machine, home, project, manifest):
         on_disk = art.source is not None and art.source.is_file()
         row_state = MISSING if not on_disk else LINKED if healthy else DRIFT if is_configured or is_global else AVAILABLE
         installed = scope.GLOBAL if healthy and is_global else scope.PROJECT if healthy else None
-        output.append({"name": art.name, "state": row_state, "installed": installed, "global": is_global, "groups": tuple(sorted(set(art.groups))), "dependencies": tuple(sorted(set(art.dependencies))), "reason": state.DIRECT if manifest and art.name in manifest.agents else None, "parent": None, "global_for": (), "views": view_map})
+        output.append({"name": art.name, "state": row_state, "installed": installed, "global": is_global, "groups": tuple(sorted(set(art.groups))), "dependencies": tuple(sorted(set(art.dependencies))), "reason": state.DIRECT if manifest and art.name in manifest.agents else None, "parent": None, "global_for": (), "views": view_map, "deprecated": art.deprecated})
     missing = set(manifest.agents if manifest else ()) - set(project_agents)
     for name in sorted(missing):
-        output.append({"name": name, "state": MISSING, "installed": None, "global": False, "groups": (), "dependencies": (), "reason": state.DIRECT, "parent": None, "global_for": (), "views": _unknown_agent_views(home, project, machine, selected, name)})
+        output.append({"name": name, "state": MISSING, "installed": None, "global": False, "groups": (), "dependencies": (), "reason": state.DIRECT, "parent": None, "global_for": (), "views": _unknown_agent_views(home, project, machine, selected, name), "deprecated": False})
     return sorted(output, key=lambda row: (row["name"], row["parent"] or ""))
 
 
@@ -157,9 +157,9 @@ def _bundle_rows(catalog, catalog_root, machine, home, project, manifest):
         view_map = _member_views(catalog_root, home, project, machine, selected, skill_map, agent_map) if selected_bundle else {}
         healthy = bool(view_map) and all(value["state"] == views.CURRENT for value in view_map.values())
         row_state = MISSING if not bundle.source.is_dir() else LINKED if healthy else DRIFT if selected_bundle else AVAILABLE
-        output.append({"name": name, "state": row_state, "installed": scope.PROJECT if healthy else None, "global": False, "groups": tuple(sorted(set(bundle.groups))), "dependencies": tuple(sorted((*bundle.requires_skills, *bundle.requires_agents))), "reason": state.DIRECT if selected_bundle else None, "parent": None, "global_for": (), "views": view_map})
+        output.append({"name": name, "state": row_state, "installed": scope.PROJECT if healthy else None, "global": False, "groups": tuple(sorted(set(bundle.groups))), "dependencies": tuple(sorted((*bundle.requires_skills, *bundle.requires_agents))), "reason": state.DIRECT if selected_bundle else None, "parent": None, "global_for": (), "views": view_map, "deprecated": bundle.deprecated})
     for name in sorted(set(manifest.bundles if manifest else ()) - set(bundle_map)):
-        output.append({"name": name, "state": MISSING, "installed": None, "global": False, "groups": (), "dependencies": (), "reason": state.DIRECT, "parent": None, "global_for": (), "views": {}})
+        output.append({"name": name, "state": MISSING, "installed": None, "global": False, "groups": (), "dependencies": (), "reason": state.DIRECT, "parent": None, "global_for": (), "views": {}, "deprecated": False})
     return output
 
 
@@ -255,6 +255,7 @@ def rows(catalog, catalog_root, machine, home, project, manifest, group=None):
                 "parent": parent,
                 "global_for": global_parents.get(art.name, ()),
                 "views": view_map,
+                "deprecated": art.deprecated,
             }
         )
 
@@ -275,6 +276,7 @@ def rows(catalog, catalog_root, machine, home, project, manifest, group=None):
                 "parent": parent,
                 "global_for": (),
                 "views": _unknown_views(home, project, selected, name),
+                "deprecated": False,
             }
         )
     return sorted(output, key=lambda row: row["name"])
@@ -311,6 +313,8 @@ def format_row(row, indent="  ", show_groups=True):
         parts.append(colors.paint("(needs: " + ", ".join(row["dependencies"]) + ")", "dim"))
     if row["parent"]:
         parts.append(colors.paint(f"(derived from {row['parent']})", "dim"))
+    if row.get("deprecated"):
+        parts.append(colors.paint("(deprecated)", "yellow"))
     return " ".join(parts)
 
 

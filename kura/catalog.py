@@ -47,8 +47,6 @@ BUNDLE_UNSUPPORTED_KEYS = ("global", "dependencies", "dependency_only")
 # GitHub resolves a short or mixed-case SHA in an archive URL too, but a pin is only
 # unambiguous at full length, and one spelling keeps two pins comparable as strings.
 COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
-
-
 @dataclass(frozen=True)
 class Artifact:
     name: str
@@ -70,6 +68,7 @@ class Artifact:
     # Plugins only: keys present in the manifest, so doctor can flag the traps.
     manifest_keys: tuple = field(default=())
     catalog_error: str = None
+    deprecated: bool = False
 
     @property
     def leaf(self):
@@ -98,6 +97,7 @@ class Bundle:
     requires_agents: tuple = ()
     catalog_error: str = None
     groups: tuple = ()
+    deprecated: bool = False
 
     @property
     def type(self):
@@ -253,6 +253,13 @@ def _metadata_strings(entry, key, artifact_name, kind):
         raise ValueError(f"registry {kind} {artifact_name!r} has malformed {key}") from exc
 
 
+def _flag(entry, key, artifact_name, kind):
+    value = entry.get(key, False)
+    if not isinstance(value, bool):
+        raise ValueError(f"registry {kind} {artifact_name!r} has malformed {key}")
+    return value
+
+
 def _registry(claude, kind):
     """The registry's upstream block and its (name, entry, repo_key) rows.
 
@@ -290,12 +297,8 @@ def _from_registry(claude, kind):
                 f"registry {kind} {name!r} uses the retired global group; "
                 "remove it from groups and set global: true"
             )
-        is_global = entry.get("global", False)
-        if not isinstance(is_global, bool):
-            raise ValueError(f"registry {kind} {name!r} has malformed global")
-        dependency_only = entry.get("dependency_only", False)
-        if not isinstance(dependency_only, bool):
-            raise ValueError(f"registry {kind} {name!r} has malformed dependency_only")
+        is_global = _flag(entry, "global", name, kind)
+        dependency_only = _flag(entry, "dependency_only", name, kind)
         out[name] = Artifact(
             name=name,
             type=kind,
@@ -311,6 +314,7 @@ def _from_registry(claude, kind):
             upstream_commit=upstream[repo_key].get("commit") if repo_key else None,
             updated_at=entry.get("updated_at"),
             catalog_error=containment or metadata_error or mismatch,
+            deprecated=_flag(entry, "deprecated", name, kind),
         )
     return out
 
@@ -360,6 +364,7 @@ def _from_bundles(claude):
         if unsupported:
             raise ValueError(f"registry bundle {name!r} has unsupported {', '.join(unsupported)}")
         groups = _metadata_strings(entry, "groups", name, BUNDLE)
+        deprecated = _flag(entry, "deprecated", name, BUNDLE)
         if "global" in groups:
             raise ValueError(
                 f"registry bundle {name!r} uses the retired global group; "
@@ -367,7 +372,7 @@ def _from_bundles(claude):
             )
         directory = root / name
         if not directory.is_dir():
-            out[(BUNDLE, name)] = Bundle(name=name, source=directory, groups=groups)
+            out[(BUNDLE, name)] = Bundle(name=name, source=directory, groups=groups, deprecated=deprecated)
             continue
         marker = directory / BUNDLE_MARKER
         containment = _containment_error(BUNDLE, directory, root)
@@ -378,6 +383,7 @@ def _from_bundles(claude):
                 source=directory,
                 catalog_error=containment or f"bundle '{name}' is missing {BUNDLE_MARKER}",
                 groups=groups,
+                deprecated=deprecated,
             )
             continue
         if marker_containment:
@@ -409,6 +415,7 @@ def _from_bundles(claude):
             requires_agents=requires_agents,
             catalog_error=containment or marker_containment or missing or (errors[0] if errors else None),
             groups=groups,
+            deprecated=deprecated,
         )
     return out
 

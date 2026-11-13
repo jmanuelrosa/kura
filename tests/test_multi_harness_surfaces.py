@@ -17,6 +17,7 @@ ROW_FIELDS = {
     "parent",
     "global_for",
     "views",
+    "deprecated",
 }
 
 

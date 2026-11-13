@@ -89,6 +89,9 @@
         },
         "note": {
           "$ref": "#/$defs/note"
+        },
+        "deprecated": {
+          "$ref": "#/$defs/deprecated"
         }
       }
     },
@@ -117,6 +120,9 @@
         },
         "note": {
           "$ref": "#/$defs/note"
+        },
+        "deprecated": {
+          "$ref": "#/$defs/deprecated"
         }
       }
     },
@@ -162,6 +168,11 @@
     "note": {
       "type": "string",
       "description": "Free-form annotation. Kura ignores it."
+    },
+    "deprecated": {
+      "type": "boolean",
+      "default": false,
+      "description": "The artifact is superseded. It stays installable: `kura list` marks it, `kura add` and `kura sync` warn on stderr, and `kura doctor` notes it while it is still installed. Lives on the registry row so it survives `kura update` replacing an upstream artifact's files."
     }
   }
 }
