@@ -47,6 +47,8 @@ BUNDLE_UNSUPPORTED_KEYS = ("global", "dependencies", "dependency_only")
 # GitHub resolves a short or mixed-case SHA in an archive URL too, but a pin is only
 # unambiguous at full length, and one spelling keeps two pins comparable as strings.
 COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
+
+
 @dataclass(frozen=True)
 class Artifact:
     name: str
